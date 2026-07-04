@@ -2,14 +2,21 @@
 
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowUp, Check, CircleDashed, Loader2, Sparkles, CheckCircle2, XCircle } from "lucide-react";
-import type { ChatMessage } from "@/lib/types";
+import { ArrowUp, ArrowRightLeft, Check, CircleDashed, Cpu, Loader2, Sparkles, CheckCircle2, XCircle } from "lucide-react";
+import type { ChatMessage, LLMId } from "@/lib/types";
 import { useChatStore } from "@/store/chat-store";
+import { LLM_OPTIONS } from "@/lib/mock-data";
 import { ModeSwitcher } from "./mode-switcher";
 import { LLMSelector } from "./llm-selector";
 import { CostPanel } from "./cost-panel";
+import { ProviderStatusPanel } from "./provider-status-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+// Nome de exibição de um modelo a partir do seu id.
+function modelName(id: LLMId): string {
+  return LLM_OPTIONS.find((o) => o.id === id)?.name ?? id;
+}
 
 export function ChatPanel() {
   const messages = useChatStore((s) => s.messages);
@@ -76,6 +83,7 @@ export function ChatPanel() {
         </div>
       </div>
 
+      <ProviderStatusPanel />
       <CostPanel />
     </div>
   );
@@ -95,10 +103,32 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       <div
         className={cn(
           "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm",
-          isUser ? "bg-primary text-primary-foreground" : "bg-secondary"
+          isUser
+            ? "bg-primary text-primary-foreground"
+            : message.error
+            ? "border border-red-500/30 bg-red-500/10"
+            : "bg-secondary"
         )}
       >
+        {/* Aviso de fallback: modelo trocado automaticamente por limite/falha */}
+        {message.fallback && (
+          <div className="mb-2 flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+            <ArrowRightLeft className="mt-0.5 h-3 w-3 shrink-0" />
+            <span>
+              Troca automática: <strong>{modelName(message.fallback.from)}</strong> →{" "}
+              <strong>{modelName(message.fallback.to)}</strong>. {message.fallback.reason}.
+            </span>
+          </div>
+        )}
+
         <p className="whitespace-pre-wrap">{message.content}</p>
+
+        {/* Badge do modelo que efetivamente respondeu (transparência) */}
+        {!isUser && message.respondedBy && (
+          <div className="mt-2 flex items-center gap-1 text-[10px] text-muted-foreground">
+            <Cpu className="h-3 w-3" /> {modelName(message.respondedBy)}
+          </div>
+        )}
 
         {message.plan && (
           <div className="mt-3 space-y-2">

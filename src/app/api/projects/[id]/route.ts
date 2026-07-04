@@ -22,7 +22,7 @@ const patchSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   framework: z.string().optional(),
-  llm: z.enum(["gpt-4o", "claude-3.5-sonnet", "grok-2", "gemini-1.5-pro"]).optional(),
+  llm: z.enum(["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemini-2.0-flash"]).optional(),
   status: z.enum(["draft", "building", "live", "error"]).optional(),
 });
 

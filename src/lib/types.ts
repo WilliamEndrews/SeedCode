@@ -59,6 +59,12 @@ export interface ChatMessage {
   // Optional structured plan (Plan Mode) or steps (Agent Mode).
   plan?: PlanStep[];
   steps?: AgentStep[];
+  // Modelo que efetivamente gerou esta resposta (transparência na UI).
+  respondedBy?: LLMId;
+  // Preenchido quando houve troca automática de modelo (fallback).
+  fallback?: FallbackInfo;
+  // Marca uma resposta que terminou em erro (ex.: todos os modelos falharam).
+  error?: boolean;
 }
 
 export interface PlanStep {
@@ -76,18 +82,57 @@ export interface AgentStep {
   state: StepState;
 }
 
-export type LLMId = "gpt-4o" | "claude-3.5-sonnet" | "grok-2" | "gemini-1.5-pro";
+// Provedores de IA usados na fase gratuita (Groq Cloud + Google AI Studio).
+export type LLMProvider = "groq" | "google";
+
+// Ids internos = ids reais dos modelos nos provedores (mapeamento 1:1).
+export type LLMId =
+  | "llama-3.3-70b-versatile"
+  | "llama-3.1-8b-instant"
+  | "gemini-2.0-flash";
 
 export interface LLMOption {
   id: LLMId;
   name: string;
+  // Nome de exibição do provedor (ex.: "Groq", "Google").
   provider: string;
+  // Id do provedor para roteamento e controle de limites.
+  providerId: LLMProvider;
+  // Custo por 1k tokens (0 no free tier — mantido para exibição/futuro).
   costPer1kTokens: number;
   badge?: string;
+  // Indica se o modelo roda no tier gratuito.
+  free?: boolean;
 }
 
 export interface CostSnapshot {
   tokensUsed: number;
   costUsd: number;
   requests: number;
+}
+
+// Situação de uso/limite de um provedor, exibida de forma transparente na UI.
+export interface ProviderUsage {
+  provider: LLMProvider;
+  label: string;
+  // Requisições feitas no minuto e no dia correntes.
+  requestsThisMinute: number;
+  requestsToday: number;
+  // Limites estimados do free tier (para as barras de consumo).
+  rpmLimit: number;
+  dailyLimit: number;
+  // Quando em cooldown por rate-limit (429), até quando ficará indisponível.
+  cooldownUntil: string | null;
+  // Disponibilidade calculada (respeitando limites e cooldown).
+  available: boolean;
+}
+
+// Evento de fallback: registra quando o gateway trocou de modelo.
+export interface FallbackInfo {
+  // Modelo originalmente solicitado que falhou/estourou limite.
+  from: LLMId;
+  // Modelo que efetivamente respondeu.
+  to: LLMId;
+  // Motivo legível (ex.: "Limite de requisições atingido").
+  reason: string;
 }

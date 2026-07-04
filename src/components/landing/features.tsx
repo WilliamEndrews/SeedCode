@@ -37,7 +37,7 @@ const FEATURES = [
   {
     icon: Layers,
     title: "Multi-LLM nativo",
-    desc: "Escolha entre GPT-4o, Claude, Grok e Gemini por tarefa, com fallback automático.",
+    desc: "Escolha entre Llama 3.3, Llama 3.1 e Gemini 2.0 por tarefa, com fallback automático.",
   },
   {
     icon: GitBranch,

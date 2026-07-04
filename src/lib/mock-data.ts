@@ -1,10 +1,35 @@
 import type { Project, Template, LLMOption } from "./types";
 
+// Lineup gratuito da fase atual: Groq Cloud + Google AI Studio.
+// O custo é 0 no free tier; mantemos o campo para exibição/futuro.
 export const LLM_OPTIONS: LLMOption[] = [
-  { id: "gpt-4o", name: "GPT-4o", provider: "OpenAI", costPer1kTokens: 0.005, badge: "Balanced" },
-  { id: "claude-3.5-sonnet", name: "Claude 3.5 Sonnet", provider: "Anthropic", costPer1kTokens: 0.003, badge: "Best code" },
-  { id: "grok-2", name: "Grok 2", provider: "xAI", costPer1kTokens: 0.002, badge: "Fast" },
-  { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", provider: "Google", costPer1kTokens: 0.0035, badge: "Long ctx" },
+  {
+    id: "llama-3.3-70b-versatile",
+    name: "Llama 3.3 70B",
+    provider: "Groq",
+    providerId: "groq",
+    costPer1kTokens: 0,
+    badge: "Melhor p/ código",
+    free: true,
+  },
+  {
+    id: "llama-3.1-8b-instant",
+    name: "Llama 3.1 8B",
+    provider: "Groq",
+    providerId: "groq",
+    costPer1kTokens: 0,
+    badge: "Ultrarrápido",
+    free: true,
+  },
+  {
+    id: "gemini-2.0-flash",
+    name: "Gemini 2.0 Flash",
+    provider: "Google",
+    providerId: "google",
+    costPer1kTokens: 0,
+    badge: "Contexto 1M",
+    free: true,
+  },
 ];
 
 export const MOCK_PROJECTS: Project[] = [
@@ -16,7 +41,7 @@ export const MOCK_PROJECTS: Project[] = [
     framework: "Next.js + Supabase",
     updatedAt: "2026-07-01T14:20:00Z",
     thumbnailGradient: "from-emerald-500 to-teal-600",
-    llm: "claude-3.5-sonnet",
+    llm: "llama-3.3-70b-versatile",
   },
   {
     id: "proj-shopnest",
@@ -26,7 +51,7 @@ export const MOCK_PROJECTS: Project[] = [
     framework: "Next.js + Prisma",
     updatedAt: "2026-07-02T09:05:00Z",
     thumbnailGradient: "from-violet-500 to-fuchsia-600",
-    llm: "gpt-4o",
+    llm: "gemini-2.0-flash",
   },
   {
     id: "proj-pulse",
@@ -36,7 +61,7 @@ export const MOCK_PROJECTS: Project[] = [
     framework: "Next.js + Postgres",
     updatedAt: "2026-06-28T18:40:00Z",
     thumbnailGradient: "from-sky-500 to-indigo-600",
-    llm: "grok-2",
+    llm: "llama-3.1-8b-instant",
   },
   {
     id: "proj-inbox",
@@ -46,7 +71,7 @@ export const MOCK_PROJECTS: Project[] = [
     framework: "Next.js + LangGraph",
     updatedAt: "2026-06-30T11:15:00Z",
     thumbnailGradient: "from-amber-500 to-orange-600",
-    llm: "gemini-1.5-pro",
+    llm: "gemini-2.0-flash",
   },
 ];
 

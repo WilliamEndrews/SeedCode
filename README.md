@@ -30,6 +30,29 @@ Acesse `http://localhost:3000`.
 
 > **Nota (Fase 2A):** usuários e projetos vivem em um **store em memória** (`src/server/store.ts`), a ser substituído por Prisma/Supabase na Fase 2B.
 
+## Multi-LLM (Fase 2B)
+
+Gateway com **fallback automático** entre provedores gratuitos, com transparência total na UI.
+
+- **Groq · `llama-3.3-70b-versatile`** — padrão para geração de código.
+- **Groq · `llama-3.1-8b-instant`** — tarefas curtas/rápidas.
+- **Google · `gemini-2.0-flash`** — contexto longo (1M), multimodal.
+
+Recursos de transparência no builder:
+
+- **Badge do modelo** que efetivamente respondeu em cada mensagem.
+- **Aviso de fallback** explícito quando há troca de modelo (com o motivo).
+- **Painel de status** por provedor: consumo por minuto/dia e cooldown.
+
+Variáveis no `.env.local` (BYO-key, nunca commitadas):
+
+```
+GROQ_API_KEY="..."
+GOOGLE_GENERATIVE_AI_API_KEY="..."   # aceita as novas keys "AQ." do AI Studio
+```
+
+Endpoints: `POST /api/chat` (streaming) e `GET /api/llm/status`.
+
 ## API de Projetos
 
 Todas exigem sessão válida.

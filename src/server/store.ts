@@ -169,7 +169,7 @@ export function createProject(
     updatedAt: new Date().toISOString(),
     // Gradiente padrão para a thumbnail do card no dashboard.
     thumbnailGradient: "from-emerald-500 to-teal-600",
-    llm: data.llm ?? "claude-3.5-sonnet",
+    llm: data.llm ?? "llama-3.3-70b-versatile",
     ownerId,
   };
 

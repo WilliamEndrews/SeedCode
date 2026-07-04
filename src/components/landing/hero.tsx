@@ -20,7 +20,7 @@ export function Hero() {
         >
           <Badge variant="default" className="mb-6 gap-1.5 px-3 py-1">
             <Sparkles className="h-3.5 w-3.5" />
-            Multi-LLM · GPT-4o · Claude · Grok · Gemini
+            Multi-LLM · Llama 3.3 · Gemini 2.0 · fallback automático
           </Badge>
         </motion.div>
 
