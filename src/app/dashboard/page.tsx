@@ -1,10 +1,17 @@
+import { auth } from "@/auth";
+import { listProjectsByOwner } from "@/server/store";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { NewAppPrompt } from "@/components/dashboard/new-app-prompt";
 import { ProjectCard } from "@/components/dashboard/project-card";
 import { TemplateCard } from "@/components/dashboard/template-card";
-import { MOCK_PROJECTS, MOCK_TEMPLATES } from "@/lib/mock-data";
+import { MOCK_TEMPLATES } from "@/lib/mock-data";
 
-export default function DashboardPage() {
+// Server Component: carrega os projetos do usuário autenticado direto do store.
+export default async function DashboardPage() {
+  const session = await auth();
+  // O middleware já protege esta rota; o fallback evita erros de tipo.
+  const projects = session?.user?.id ? listProjectsByOwner(session.user.id) : [];
+
   return (
     <div className="min-h-screen bg-background">
       <DashboardHeader />
@@ -14,10 +21,10 @@ export default function DashboardPage() {
         <section className="mt-10">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Seus projetos</h2>
-            <span className="text-sm text-muted-foreground">{MOCK_PROJECTS.length} projetos</span>
+            <span className="text-sm text-muted-foreground">{projects.length} projetos</span>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {MOCK_PROJECTS.map((p, i) => (
+            {projects.map((p, i) => (
               <ProjectCard key={p.id} project={p} index={i} />
             ))}
           </div>
