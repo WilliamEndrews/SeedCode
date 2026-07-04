@@ -5,6 +5,27 @@ export type AgentMode = "agent" | "plan" | "visual" | "auto";
 
 export type ProjectStatus = "draft" | "building" | "live" | "error";
 
+// Usuário autenticado. O campo `passwordHash` só existe no servidor
+// (nunca é enviado ao cliente) e será migrado para o banco na Fase 2B.
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  // Hash bcrypt da senha — presente apenas para contas criadas por credenciais.
+  passwordHash?: string;
+  // Provedor de origem da conta ("credentials", "google" ou "github").
+  provider: string;
+  createdAt: string;
+}
+
+// Dados aceitos ao criar um novo projeto via API (/api/projects).
+export interface CreateProjectInput {
+  name: string;
+  description?: string;
+  framework?: string;
+  llm?: LLMId;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -14,6 +35,8 @@ export interface Project {
   updatedAt: string;
   thumbnailGradient: string;
   llm: LLMId;
+  // Id do usuário dono do projeto. Opcional para os projetos mock legados.
+  ownerId?: string;
 }
 
 export interface Template {

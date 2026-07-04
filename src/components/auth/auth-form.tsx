@@ -3,13 +3,15 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Github, Loader2, Mail } from "lucide-react";
+import { AlertCircle, Github, Loader2, Mail } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { registerUser } from "@/lib/actions/auth-actions";
 
 interface AuthFormProps {
   mode: "login" | "signup";
@@ -17,14 +19,54 @@ interface AuthFormProps {
 
 export function AuthForm({ mode }: AuthFormProps) {
   const router = useRouter();
-  const [loading, setLoading] = React.useState(false);
   const isSignup = mode === "signup";
 
-  function handleSubmit(e: React.FormEvent) {
+  // Estado controlado dos campos do formulário.
+  const [name, setName] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  // Controle de carregamento e mensagem de erro exibida ao usuário.
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // Submissão por e-mail/senha. No cadastro, cria a conta antes de logar.
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    // Mock auth: no backend yet — simply route to the dashboard.
-    setTimeout(() => router.push("/dashboard"), 800);
+    setError(null);
+
+    // Fluxo de cadastro: registra o usuário via Server Action.
+    if (isSignup) {
+      const result = await registerUser({ name, email, password });
+      if (!result.success) {
+        setError(result.error ?? "Não foi possível criar a conta.");
+        setLoading(false);
+        return;
+      }
+    }
+
+    // Autentica com o provider de credenciais (sem redirect automático para
+    // podermos tratar o erro na própria tela).
+    const result = await signIn("credentials", {
+      email,
+      password,
+      redirect: false,
+    });
+
+    if (result?.error) {
+      setError("E-mail ou senha inválidos.");
+      setLoading(false);
+      return;
+    }
+
+    // Sucesso: navega ao dashboard.
+    router.push("/dashboard");
+    router.refresh();
+  }
+
+  // Login social (Google/GitHub) — redireciona diretamente ao dashboard.
+  function handleOAuth(provider: "google" | "github") {
+    signIn(provider, { callbackUrl: "/dashboard" });
   }
 
   return (
@@ -57,13 +99,21 @@ export function AuthForm({ mode }: AuthFormProps) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Button variant="outline" type="button">
+            <Button variant="outline" type="button" onClick={() => handleOAuth("github")}>
               <Github className="h-4 w-4" /> GitHub
             </Button>
-            <Button variant="outline" type="button">
+            <Button variant="outline" type="button" onClick={() => handleOAuth("google")}>
               <Mail className="h-4 w-4" /> Google
             </Button>
           </div>
+
+          {/* Mensagem de erro de autenticação/cadastro */}
+          {error && (
+            <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
           <div className="my-6 flex items-center gap-3">
             <Separator className="flex-1" />
@@ -75,16 +125,36 @@ export function AuthForm({ mode }: AuthFormProps) {
             {isSignup && (
               <div className="space-y-1.5">
                 <Label htmlFor="name">Nome</Label>
-                <Input id="name" placeholder="Seu nome" required />
+                <Input
+                  id="name"
+                  placeholder="Seu nome"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
               </div>
             )}
             <div className="space-y-1.5">
               <Label htmlFor="email">E-mail</Label>
-              <Input id="email" type="email" placeholder="voce@exemplo.com" required />
+              <Input
+                id="email"
+                type="email"
+                placeholder="voce@exemplo.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">Senha</Label>
-              <Input id="password" type="password" placeholder="••••••••" required />
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
             </div>
 
             <Button type="submit" variant="gradient" className="w-full" disabled={loading}>

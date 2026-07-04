@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { signOut, useSession } from "next-auth/react";
 import { Bell, Search, Plus } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -17,6 +18,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export function DashboardHeader() {
+  // Sessão do usuário autenticado (nome, e-mail).
+  const { data: session } = useSession();
+  const user = session?.user;
+
+  // Gera as iniciais para o avatar a partir do nome (ex.: "Demo SeedCode" → "DS").
+  const initials = (user?.name ?? "SC")
+    .split(" ")
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border/40 bg-background/70 backdrop-blur-xl">
       <div className="flex h-16 items-center gap-4 px-6">
@@ -44,20 +57,29 @@ export function DashboardHeader() {
               <button className="outline-none">
                 <Avatar>
                   <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
-                    SC
+                    {initials}
                   </AvatarFallback>
                 </Avatar>
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuLabel>Minha conta</DropdownMenuLabel>
+            <DropdownMenuContent align="end" className="w-56">
+              {/* Cabeçalho com nome e e-mail do usuário logado */}
+              <DropdownMenuLabel className="flex flex-col">
+                <span className="truncate">{user?.name ?? "Minha conta"}</span>
+                {user?.email && (
+                  <span className="truncate text-xs font-normal text-muted-foreground">
+                    {user.email}
+                  </span>
+                )}
+              </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem>Perfil</DropdownMenuItem>
               <DropdownMenuItem>Configurações</DropdownMenuItem>
               <DropdownMenuItem>Faturamento</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/">Sair</Link>
+              {/* Encerra a sessão e retorna à landing page */}
+              <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/" })}>
+                Sair
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
