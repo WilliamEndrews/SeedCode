@@ -86,6 +86,7 @@ export async function POST(request: Request) {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
       "X-LLM-Model": result.model,
+      "Access-Control-Expose-Headers": "X-LLM-Model, X-LLM-Fallback-From, X-LLM-Fallback-Reason",
     });
     if (result.fallback) {
       headers.set("X-LLM-Fallback-From", result.fallback.from);

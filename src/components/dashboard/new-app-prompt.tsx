@@ -18,7 +18,10 @@ export function NewAppPrompt() {
   const [value, setValue] = React.useState("");
 
   function start() {
-    router.push("/builder/new");
+    // Passa o prompt como search param para a rota /builder/new usar como
+    // título/descrição do projeto que será criado no servidor.
+    const params = value.trim() ? `?prompt=${encodeURIComponent(value.trim())}` : "";
+    router.push(`/builder/new${params}`);
   }
 
   return (

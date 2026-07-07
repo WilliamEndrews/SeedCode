@@ -34,7 +34,13 @@ export const authConfig = {
   callbacks: {
     // Controla o acesso às rotas com base na sessão. É chamado pelo middleware
     // a cada requisição às rotas do `matcher`.
-    authorized({ auth, request: { nextUrl } }) {
+    authorized({ auth, request: { nextUrl, method } }) {
+      // Server Actions e outras mutações POST não devem ser interceptadas pelo
+      // middleware de autenticação; a proteção de páginas é suficiente para GETs.
+      if (method !== "GET") {
+        return true;
+      }
+
       const isLoggedIn = Boolean(auth?.user);
       const { pathname } = nextUrl;
 

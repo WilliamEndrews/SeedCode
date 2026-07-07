@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowUp, ArrowRightLeft, Check, CircleDashed, Cpu, Loader2, Sparkles, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowUp, ArrowRightLeft, Check, ChevronDown, CircleDashed, Cpu, Gauge, Loader2, Sparkles, CheckCircle2, XCircle } from "lucide-react";
 import type { ChatMessage, LLMId } from "@/lib/types";
 import { useChatStore } from "@/store/chat-store";
 import { LLM_OPTIONS } from "@/lib/mock-data";
@@ -23,6 +23,9 @@ export function ChatPanel() {
   const isThinking = useChatStore((s) => s.isThinking);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const [input, setInput] = React.useState("");
+  // Painel de status/custo recolhível (fechado por padrão) para não ocupar
+  // espaço vertical e garantir que o input e as mensagens fiquem sempre visíveis.
+  const [showStats, setShowStats] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -36,15 +39,15 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Sparkles className="h-4 w-4 text-primary" /> Agente SeedCode
         </div>
         <LLMSelector />
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />
         ))}
@@ -55,7 +58,7 @@ export function ChatPanel() {
         )}
       </div>
 
-      <div className="border-t border-border/60 p-3">
+      <div className="shrink-0 border-t border-border/60 p-3">
         <ModeSwitcher />
         <div className="relative mt-3">
           <textarea
@@ -83,8 +86,29 @@ export function ChatPanel() {
         </div>
       </div>
 
-      <ProviderStatusPanel />
-      <CostPanel />
+      {/* Bloco recolhível de status/custo: por padrão fechado para preservar o
+          espaço vertical. Quando aberto, tem altura máxima e scroll próprio,
+          nunca empurrando o input para fora da tela. */}
+      <div className="shrink-0 border-t border-border/60">
+        <button
+          type="button"
+          onClick={() => setShowStats((v) => !v)}
+          className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <span className="flex items-center gap-1.5">
+            <Gauge className="h-3.5 w-3.5 text-primary" /> Status &amp; uso
+          </span>
+          <ChevronDown
+            className={cn("h-4 w-4 transition-transform", showStats && "rotate-180")}
+          />
+        </button>
+        {showStats && (
+          <div className="max-h-[40vh] overflow-y-auto">
+            <ProviderStatusPanel />
+            <CostPanel />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
