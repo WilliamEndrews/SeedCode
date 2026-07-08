@@ -2,262 +2,392 @@
 
 > **Autor:** Agente 1 — Pesquisador + Arquiteto de Software Sênior
 > **Data:** Julho 2026
-> **Objetivo:** Comparar o estado atual do SeedCode com os concorrentes (Lovable.dev e Base44.com), identificar o que foi entregue, o que está faltando e traçar a rota de desenvolvimento para o Agente 2.
+> **Objetivo:** Dividir o desenvolvimento em duas etapas executáveis para o Agente 2, com tarefas técnicas, arquivos a alterar e critérios de pronto.
 
 ---
 
-## 1. Estado Atual vs. Concorrentes
+## 0. Resumo Executivo
 
-### 1.1 Mapa de funcionalidades comparativo
+O SeedCode já tem **autenticação real, API de projetos, chat com streaming e multi-LLM com fallback**. O próximo grande passo é transformar o chat em um **construtor real**: o usuário pede algo em linguagem natural e o app aparece no preview e no editor.
 
-| Funcionalidade | Lovable.dev | Base44.com | SeedCode HOJE | Prioridade |
+Para isso, dividimos em **duas etapas sequenciais**:
+
+1. **Etapa 1 — Fundação Real**: banco de dados persistente + sistema de arquivos virtual + sandbox + preview real.
+2. **Etapa 2 — Agente Construtor**: o chat interpreta a resposta da IA, gera arquivos, roda no sandbox, corrige erros e permite aprovação de planos.
+
+---
+
+## 1. Etapa 1 — Fundação Real
+
+> **Sem isso o produto não constrói nada.**
+
+**Objetivo técnico:** substituir o store em memória por Prisma/PostgreSQL, criar o sistema de arquivos de projeto, plugar um sandbox e fazer o preview exibir o app real.
+
+---
+
+### 1.1 Tarefas técnicas
+
+#### 1.1.1 Adicionar Prisma e PostgreSQL
+
+- **Pacotes:** `prisma`, `@prisma/client`
+- **Arquivos a criar:**
+  - `prisma/schema.prisma` — schema inicial
+  - `prisma/migrations/` — pasta de migrações
+- **Arquivos a alterar:**
+  - `package.json` — adicionar dependências
+  - `.env.local` — adicionar `DATABASE_URL`
+  - `src/server/store.ts` — substituir funções por queries Prisma
+  - `src/auth.ts` — usar `PrismaAdapter`
+  - `src/auth.config.ts` — ajustar se necessário para compatibilidade com o adapter
+- **Schema mínimo (inicial):**
+  ```prisma
+  model User {
+    id            String    @id @default(cuid())
+    email         String    @unique
+    name          String?
+    password      String?          // para credenciais
+    emailVerified DateTime?
+    image         String?
+    accounts      Account[]
+    sessions      Session[]
+    projects      Project[]
+    createdAt     DateTime  @default(now())
+  }
+
+  model Account {
+    id                String  @id @default(cuid())
+    userId            String
+    type              String
+    provider          String
+    providerAccountId String
+    refresh_token     String? @db.Text
+    access_token      String? @db.Text
+    expires_at        Int?
+    token_type        String?
+    scope             String?
+    id_token          String? @db.Text
+    session_state     String?
+    user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  }
+
+  model Session {
+    id           String   @id @default(cuid())
+    sessionToken String   @unique
+    userId       String
+    expires      DateTime
+    user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  }
+
+  model Project {
+    id            String        @id @default(cuid())
+    name          String
+    description   String?
+    status        String        @default("draft")
+    framework     String        @default("Next.js")
+    llm           String        @default("llama-3.3-70b-versatile")
+    thumbnailGradient String    @default("from-emerald-500 to-teal-600")
+    ownerId       String
+    owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+    files         ProjectFile[]
+    createdAt     DateTime      @default(now())
+    updatedAt     DateTime      @updatedAt
+  }
+  ```
+- **Comandos:**
+  ```bash
+  npx prisma migrate dev --name init
+  npx prisma generate
+  ```
+
+#### 1.1.2 Criar sistema de arquivos virtual (ProjectFile)
+
+- **Arquivos a criar:**
+  - `prisma/schema.prisma` — adicionar model `ProjectFile`
+  - `src/server/project-files.ts` — funções CRUD de arquivos
+- **Schema `ProjectFile`:**
+  ```prisma
+  model ProjectFile {
+    id        String   @id @default(cuid())
+    projectId String
+    path      String
+    content   String   @db.Text
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+    @@unique([projectId, path])
+  }
+  ```
+- **Funções mínimas em `src/server/project-files.ts`:**
+  - `listFiles(projectId: string): Promise<ProjectFile[]>`
+  - `getFile(projectId: string, path: string): Promise<ProjectFile | null>`
+  - `writeFile(projectId: string, path: string, content: string): Promise<ProjectFile>`
+  - `deleteFile(projectId: string, path: string): Promise<void>`
+- **Arquivos a alterar:**
+  - `src/app/api/projects/[id]/route.ts` — adicionar `GET /api/projects/[id]/files` (delegado ou nova rota)
+  - Criar `src/app/api/projects/[id]/files/route.ts` com `GET` (listar) e `POST` (escrever)
+  - Criar `src/app/api/projects/[id]/files/[path]/route.ts` com `GET` (ler) e `DELETE` (remover) — o path pode vir codificado ou como body
+
+#### 1.1.3 Integrar sandbox
+
+> **Recomendação:** começar com **iframe + apps HTML estáticos** como MVP. É a forma mais rápida de ter um preview real sem depender de bibliotecas pesadas. Depois evolui para WebContainers ou E2B.
+
+- **Arquivos a criar:**
+  - `src/server/sandbox/html-sandbox.ts` — monta `index.html` a partir de `ProjectFile[]` e retorna um Blob URL ou HTML string
+- **Arquivos a alterar:**
+  - `src/components/builder/preview-pane.tsx` — receber `projectId` e buscar `files` via API; renderizar iframe com conteúdo do sandbox
+- **Fluxo mínimo:**
+  1. `PreviewPane` recebe `projectId`
+  2. Carrega `ProjectFile[]` de `/api/projects/[id]/files`
+  3. Se existir `index.html`, injeta no `iframe` via `srcDoc`
+  4. Se não existir, exibe `EmptyPreview` (já implementado)
+
+#### 1.1.4 Exibir arquivos no CodePanel
+
+- **Arquivos a alterar:**
+  - `src/components/builder/code-panel.tsx` — substituir `EmptyCode` por árvore de arquivos quando existirem `ProjectFile`
+  - Criar `src/components/builder/file-tree.tsx` — lista de arquivos clicáveis
+  - Criar `src/components/builder/file-editor.tsx` — editor simples (textarea com syntax highlight via Shiki ou Prism) para exibir/conteúdo do arquivo selecionado
+
+#### 1.1.5 Manter compatibilidade com APIs existentes
+
+- **Contrato da API de projetos não pode mudar** (já validado com curl).
+- Apenas a implementação interna das funções em `src/server/store.ts` muda de memória para Prisma.
+
+---
+
+### 1.2 Arquivos que serão tocados (resumo)
+
+```
+prisma/
+  schema.prisma (novo)
+  migrations/   (novo)
+
+src/
+  server/
+    store.ts              (reescrito para Prisma)
+    project-files.ts      (novo)
+    sandbox/
+      html-sandbox.ts     (novo)
+  app/
+    api/
+      projects/[id]/
+        files/
+          route.ts        (novo)
+        files/[path]/
+          route.ts        (novo)
+  components/
+    builder/
+      preview-pane.tsx    (conectar ao sandbox)
+      code-panel.tsx      (exibir arquivos)
+      file-tree.tsx       (novo)
+      file-editor.tsx     (novo)
+  auth.ts                 (PrismaAdapter)
+  package.json
+  .env.local
+```
+
+---
+
+### 1.3 Critérios de pronto (Definition of Done)
+
+- [ ] `npm run build` passa sem erros
+- [ ] `npx prisma migrate dev` cria o banco corretamente
+- [ ] Dados de usuários e projetos persistem após reiniciar o servidor
+- [ ] API REST de projetos continua respondendo 200 nos mesmos endpoints
+- [ ] `POST /api/projects/[id]/files` cria um arquivo no banco
+- [ ] `GET /api/projects/[id]/files` lista os arquivos
+- [ ] `PreviewPane` exibe um `index.html` salvo via iframe
+- [ ] `CodePanel` lista arquivos e exibe o conteúdo do selecionado
+- [ ] Teste manual: cadastrar usuário, criar projeto, salvar `index.html`, recarregar a página e o arquivo continua lá
+
+---
+
+## 2. Etapa 2 — Agente Construtor
+
+> **Aqui o chat vira um builder real.**
+
+**Objetivo técnico:** ao enviar uma mensagem no chat, o agente interpreta a resposta, cria/atualiza arquivos, roda o sandbox, mostra o preview e trata erros de build.
+
+---
+
+### 2.1 Tarefas técnicas
+
+#### 2.1.1 Reescrever o fluxo de chat para construção
+
+- **Arquivo principal:** `src/store/chat-store.ts` (`sendMessage`)
+- **Alteração:** ao invés de apenas exibir a resposta em texto, após o stream terminar, extrair blocos de código e aplicá-los como `ProjectFile`.
+- **Estratégia de parsing:**
+  - Procurar blocos Markdown tipo ` ```tsx filepath="src/components/button.tsx" ... ``` `
+  - Se não houver path, assumir `index.html` para blocos HTML, `index.tsx` para React, etc.
+  - Fallback: se a resposta for pura explicação, apenas exibir no chat (comportamento atual)
+
+#### 2.1.2 Adicionar tool calls ao gateway de chat
+
+- **Arquivo principal:** `src/server/llm/gateway.ts`
+- **Alterações:**
+  - Aceitar array de `tools` no `streamChat`
+  - Definir tool schema para:
+    - `write_file`: `{ path: string, content: string }`
+    - `read_file`: `{ path: string }`
+    - `run_terminal`: `{ command: string }`
+  - Retornar, junto com o stream, instruções de tool calls para o orquestrador
+- **Observação:** AI SDK v4 suporta tool calls nativamente com `streamText` e `tools`. Verificar se `result.fullStream` emite partes do tipo `tool-call` e `tool-result`.
+
+#### 2.1.3 Criar orquestrador de agente
+
+- **Arquivo novo:** `src/server/agent/orchestrator.ts`
+- **Responsabilidades:**
+  1. Receber mensagem do usuário + contexto do projeto
+  2. Chamar `streamChat` com tools
+  3. Interpretar a resposta:
+     - Se houver `tool_call` → executar a ferramenta (escrever/ler arquivo, rodar comando)
+     - Se houver texto explicativo → adicionar ao chat
+  4. Em loop: após executar tool, enviar o resultado de volta para a IA (`tool_result`) e continuar até a resposta finalizar
+- **Funções de ferramenta:**
+  - `executeWriteFile(projectId, path, content)` → salva via `src/server/project-files.ts`
+  - `executeReadFile(projectId, path)` → lê do banco
+  - `executeTerminal(projectId, command)` → futuramente no E2B/WebContainers; no MVP apenas simular para HTML estático
+
+#### 2.1.4 Implementar Plan Mode real
+
+- **Arquivo principal:** `src/store/chat-store.ts` (`mode`, `approvePlanStep`)
+- **Fluxo:**
+  1. Quando `mode === "plan"`, a IA recebe system prompt que a força a retornar um plano numerado, não código
+  2. O plano é exibido no chat com botões "Aprovar e executar" por etapa
+  3. Ao aprovar, o orquestrador executa a etapa como se estivesse em `mode === "agent"`
+  4. Cada etapa executada vira um checkpoint
+- **Arquivo novo:** `src/components/builder/plan-steps.tsx` — renderiza passos do plano com botões de aprovação
+
+#### 2.1.5 Checkpoints reversíveis
+
+- **Schema Prisma:** adicionar model `Checkpoint` em `prisma/schema.prisma`
+  ```prisma
+  model Checkpoint {
+    id        String   @id @default(cuid())
+    projectId String
+    label     String
+    files     Json     // snapshot de ProjectFile[]
+    createdAt DateTime @default(now())
+  }
+  ```
+- **Arquivo novo:** `src/server/checkpoints.ts` — `createCheckpoint(projectId, label)`, `restoreCheckpoint(checkpointId)`
+- **UI:** adicionar lista de checkpoints no `CodePanel` ou em nova aba "History"
+
+#### 2.1.6 Loop de correção de build
+
+- **Arquivo principal:** `src/server/agent/orchestrator.ts`
+- **Fluxo:**
+  1. Após escrever arquivos, executar "build" no sandbox (no MVP, apenas validar HTML)
+  2. Se houver erro, enviar o erro de volta para a IA como mensagem de sistema
+  3. A IA retorna correção → aplicar → repetir até 3 tentativas
+  4. Se falhar após 3 tentativas, exibir erro no chat e oferecer opção manual
+
+#### 2.1.7 Conectar Preview ao estado final
+
+- **Arquivo:** `src/components/builder/preview-pane.tsx`
+- **Alteração:** após o orquestrador salvar arquivos, disparar re-fetch dos arquivos e atualizar o `iframe` automaticamente
+- Pode ser feito via evento do Zustand ou via `useEffect` reagindo a mudanças de `ProjectFile[]`
+
+---
+
+### 2.2 Arquivos que serão tocados (resumo)
+
+```
+src/
+  store/
+    chat-store.ts              (reescrever sendMessage)
+  server/
+    llm/
+      gateway.ts               (adicionar tool calls)
+    agent/
+      orchestrator.ts          (novo — core do agente)
+      tools.ts                 (novo — implementações das tools)
+    checkpoints.ts             (novo)
+  app/
+    api/
+      chat/
+        route.ts               (chamar orquestrador em vez de gateway direto)
+  components/
+    builder/
+      plan-steps.tsx           (novo)
+      code-panel.tsx           (aba History/Checkpoints)
+      preview-pane.tsx         (re-fetch automático)
+```
+
+---
+
+### 2.3 Critérios de pronto (Definition of Done)
+
+- [ ] `npm run build` passa sem erros
+- [ ] Enviar "crie um botão azul com Tailwind" gera um arquivo `index.html` e o preview exibe o botão
+- [ ] O badge do modelo continua aparecendo nas mensagens
+- [ ] Plan Mode gera um plano numerado e só executa após aprovação do usuário
+- [ ] Cada execução de plano cria um checkpoint acessível na UI
+- [ ] Checkpoints permitem restaurar o estado anterior dos arquivos
+- [ ] Erros de build são reportados no chat e a IA tenta corrigir automaticamente (até 3x)
+- [ ] O chat continua funcionando com streaming e fallback
+
+---
+
+## 3. Contexto: Por que essa ordem?
+
+A **Etapa 1** é infraestrutura. Sem banco de dados persistente, o agente perde tudo ao reiniciar. Sem sandbox, o preview não existe. Sem `ProjectFile`, não há o que o agente possa escrever.
+
+A **Etapa 2** é inteligência. Só faz sentido ensinar o agente a construir depois que existe um local seguro (banco) e uma ferramenta (sandbox) para materializar o código.
+
+Tentar fazer a Etapa 2 antes da Etapa 1 resulta em um "builder fake" que perde o trabalho a cada restart — exatamente o problema que o SeedCode deve evitar.
+
+---
+
+## 4. Anexo A — Estado Atual vs. Concorrentes (resumo)
+
+| Funcionalidade | Lovable.dev | Base44.com | SeedCode HOJE | Gap a fechar |
 |---|---|---|---|---|
-| Auth (email + OAuth) | ✅ | ✅ | ✅ **Implementado** | — |
-| Dashboard de projetos (CRUD) | ✅ | ✅ | ✅ **Implementado** | — |
-| Chat com IA (streaming real) | ✅ | ✅ | ✅ **Implementado** | — |
-| Multi-LLM com fallback | ❌ | ❌ | ✅ **Diferencial entregue** | — |
-| Transparência de custo/modelo | ❌ | ❌ | ✅ **Diferencial entregue** | — |
-| Modos Agent/Plan/Visual/Auto | ✅ | Parcial | ⚠️ **UI pronta, sem lógica real** | 🔴 Alta |
-| Preview ao vivo do app gerado | ✅ | ✅ | ❌ **Ausente (empty state)** | 🔴 Alta |
-| Geração real de código pelo agente | ✅ | ✅ | ❌ **Ausente** | 🔴 Alta |
-| Sandbox de execução | ✅ | ✅ | ❌ **Ausente** | 🔴 Alta |
-| Banco de dados persistente | ✅ | ✅ | ❌ **Store em memória (perde ao reiniciar)** | 🔴 Alta |
-| Editor de código real (diffs) | ✅ | Parcial | ❌ **Empty state** | 🟡 Média |
-| Checkpoints / time-travel | ✅ | ❌ | ❌ **Ausente** | 🟡 Média |
-| Integração GitHub | ✅ | Parcial | ❌ **Ausente** | 🟡 Média |
-| Deploy com 1 clique | ✅ | ✅ | ❌ **Ausente** | 🟡 Média |
-| Visual Edits (edição no preview) | ✅ | ❌ | ⚠️ **UI pronta, sem lógica real** | 🟡 Média |
-| Plan Mode com aprovação | ✅ | ❌ | ⚠️ **UI pronta, sem lógica real** | 🟡 Média |
-| Colaboração em tempo real | Limitada | ❌ | ❌ **Ausente** | 🟢 Baixa |
-| BYO-key (traga sua chave) | ❌ | ❌ | ⚠️ **Parcial (.env.local)** | 🟡 Média |
-| Export de código sem lock-in | Bom | Limitado | ❌ **Ausente** | 🟡 Média |
-| Templates full-stack | ✅ | ✅ | ⚠️ **Mock, sem geração real** | 🟡 Média |
+| Auth + Dashboard | ✅ | ✅ | ✅ | — |
+| Chat streaming | ✅ | ✅ | ✅ | — |
+| Multi-LLM fallback | ❌ | ❌ | ✅ | Diferencial mantido |
+| Preview ao vivo | ✅ | ✅ | ❌ | Etapa 1 |
+| Geração real de código | ✅ | ✅ | ❌ | Etapa 2 |
+| Sandbox | ✅ | ✅ | ❌ | Etapa 1 |
+| Banco persistente | ✅ | ✅ | ❌ | Etapa 1 |
+| Plan Mode com aprovação | ✅ | ❌ | ❌ | Etapa 2 |
+| Checkpoints | ✅ | ❌ | ❌ | Etapa 2 |
+| Visual Edits | ✅ | ❌ | ❌ | Futuro |
+| GitHub/Deploy | ✅ | Parcial | ❌ | Futuro |
 
 ---
 
-## 2. O que foi entregue (Fases 1 a 2B)
+## 5. Anexo B — Débitos Técnicos Atuais
 
-### Fase 1 — Protótipo de UI
-- Landing page completa (hero, features, comparativo, CTA)
-- Telas de auth (login/signup)
-- Dashboard com grid de projetos e templates
-- Builder de 3 zonas: chat · preview · código/visual edits
-- Design system (shadcn/ui, dark mode, Framer Motion)
-
-### Fase 2A — Backend de Autenticação e Projetos
-- NextAuth v5 com credenciais (bcrypt) e OAuth Google/GitHub
-- Store em memória com `globalThis` (sobrevive hot-reload)
-- API REST completa: `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/[id]`
-- Middleware de proteção de rotas (Edge Runtime)
-- Usuário demo: `demo@seedcode.dev` / `seedcode123`
-
-### Fase 2B — Multi-LLM Gateway
-- Gateway com fallback automático: Groq (Llama 3.3 70B / 3.1 8B) → Google Gemini 2.0 Flash
-- Rate-limit tracker por provedor (RPM, diário, cooldown)
-- Chat com streaming real via Vercel AI SDK v4
-- Badge do modelo que respondeu em cada mensagem
-- Aviso de fallback com motivo visível na UI
-- Painel de status dos provedores (recolhível)
-- `POST /api/chat` e `GET /api/llm/status`
-
-### Correções desta sessão
-- Fluxo de criação de projetos: `/builder/new` cria projeto real e redireciona para `/builder/[id]`
-- Builder carrega projeto do store real (não mais mocks)
-- Preview e CodePanel com empty state por projeto (sem TaskFlow hardcoded)
-- Scroll independente nas 3 colunas do builder (min-h-0 + overflow-hidden)
-- Headers `X-LLM-*` expostos ao cliente (Access-Control-Expose-Headers)
+| Débito | Arquivo | Impacto | Resolvido em |
+|---|---|---|---|
+| Store em memória perde dados no restart | `src/server/store.ts` | 🔴 Bloqueante | Etapa 1 |
+| Preview/CodePanel com empty state | `preview-pane.tsx`, `code-panel.tsx` | 🔴 Core ausente | Etapa 1 |
+| Modos Plan/Visual/Auto sem lógica real | `src/store/chat-store.ts` | 🟡 UI enganosa | Etapa 2 |
+| Sem testes automatizados | — | 🟡 Risco de regressão | Futuro |
+| Google API key com formato inválido (`AQ.`) | `.env.local` | 🟡 Gemini não funciona | Configuração do usuário |
 
 ---
 
-## 3. O que está FALTANDO — Análise crítica
-
-### 3.1 Buraco crítico: sem geração real de código
-
-Este é o coração do produto e ainda não existe. O chat conversa com a IA, mas **a resposta não se materializa em código/preview**. O usuário vê texto no chat mas nada acontece nas outras abas. Isso precisa ser o próximo grande entregável.
-
-**O que falta para fechar esse gap:**
-
-1. **Sandbox de execução** — ambiente isolado onde o código gerado roda. Opções:
-   - **WebContainers (StackBlitz)** — roda Node.js no browser, zero latência, gratuito para OSS
-   - **E2B** — sandbox cloud com terminal real, mais robusto, tem free tier
-   - **iframe simples** — para apps estáticos HTML/CSS/JS (solução mínima viável para MVP)
-
-2. **Orquestrador de agente** — o chat precisa interpretar a resposta da IA e aplicar as mudanças nos arquivos do projeto. Atualmente a resposta é só texto.
-
-3. **Sistema de arquivos virtual** — estrutura de arquivos do projeto em memória/banco, que o agente possa ler e escrever.
-
-4. **Preview conectado ao sistema de arquivos** — o `PreviewPane` precisa exibir o resultado real do sandbox.
-
-5. **CodePanel com editor real** — exibir os arquivos gerados com syntax highlight e diffs.
-
-### 3.2 Banco de dados persistente
-
-O store em memória perde todos os dados quando o servidor reinicia. Em produção isso é inaceitável.
-
-**O que falta:**
-- Prisma ORM + PostgreSQL (Supabase ou Railway)
-- Migrar `src/server/store.ts` para queries Prisma
-- Schema: `User`, `Project`, `ProjectFile`, `Checkpoint`
-
-### 3.3 Modos do agente sem lógica real
-
-Os modos **Plan**, **Visual** e **Auto** têm UI mas:
-- **Plan Mode:** o agente apresenta plano em texto, mas não há aprovação que dispare execução
-- **Visual Edits:** o slider/color picker não altera nada no preview
-- **Auto Mode:** igual ao Agent Mode na prática
-
-### 3.4 Funcionalidades de plataforma ausentes
-- Sem export/download do código
-- Sem integração GitHub (push/pull)
-- Sem deploy integrado (Vercel/Netlify)
-- Sem checkpoints reversíveis
-- BYO-key existe no `.env.local` mas não há UI para o usuário colocar a própria chave
-
----
-
-## 4. Rota para o Agente 2 — Próximas Fases
-
-### Fase 3 — Banco de Dados Real (PRIORIDADE MÁXIMA)
-
-**Objetivo:** substituir o store em memória por Prisma + PostgreSQL (Supabase).
-
-**Tarefas:**
-1. Adicionar `prisma`, `@prisma/client` ao `package.json`
-2. Criar `prisma/schema.prisma` com models: `User`, `Account`, `Session`, `Project`
-3. Configurar `DATABASE_URL` no `.env.local`
-4. Migrar todas as funções de `src/server/store.ts` para queries Prisma
-5. Adaptar `src/auth.ts` para usar Prisma Adapter do NextAuth
-6. Manter a API REST intacta (sem mudar contratos)
-
-**Entregável:** dados persistem entre restarts; múltiplos usuários funcionam em produção.
-
----
-
-### Fase 4 — Sistema de Arquivos Virtual + Sandbox (CORE DO PRODUTO)
-
-**Objetivo:** o agente gera código que aparece no preview e no editor.
-
-**Tarefas:**
-1. Adicionar model `ProjectFile` ao Prisma schema (`id`, `projectId`, `path`, `content`, `createdAt`)
-2. Criar `src/server/sandbox/` com abstração do sistema de arquivos virtual
-3. Implementar `POST /api/projects/[id]/files` (ler/escrever arquivos)
-4. Integrar **WebContainers** (MVP mais rápido) ou iframe para apps HTML estáticos
-5. Conectar `PreviewPane` ao sandbox — exibir o app real
-6. Conectar `CodePanel` — exibir `ProjectFile` com syntax highlight (Monaco Editor ou Shiki)
-7. **Reformular o `sendMessage` no `chat-store`:**
-   - Ao receber resposta da IA, extrair blocos de código (regex ou AST)
-   - Aplicar os arquivos no sistema de arquivos virtual
-   - Disparar rebuild no sandbox
-   - Atualizar o preview automaticamente
-
-**Entregável:** usuário digita "crie um botão" → código aparece no editor e preview atualiza.
-
----
-
-### Fase 5 — Orquestrador de Agente Real (Plan Mode + Tool Calls)
-
-**Objetivo:** agente autônomo que planeja, escreve, roda e corrige.
-
-**Tarefas:**
-1. Implementar **tool calls** na API de chat:
-   - `write_file(path, content)` — escreve arquivo no projeto
-   - `read_file(path)` — lê arquivo atual
-   - `run_terminal(command)` — roda comando no sandbox
-   - `create_checkpoint(label)` — salva snapshot do projeto
-2. **Plan Mode real:** agente gera plano estruturado → usuário aprova → agente executa tool calls sequencialmente
-3. **Checkpoints:** salvar snapshot de `ProjectFile[]` a cada ação significativa, com UI de time-travel
-4. **Loop de correção:** se sandbox retornar erro de build, agente recebe o erro e tenta corrigir automaticamente
-
-**Entregável:** Agent Mode funciona de verdade — escreve, roda, corrige, faz checkpoint.
-
----
-
-### Fase 6 — Visual Edits Real
-
-**Objetivo:** clicar em elemento no preview → editar propriedade → gera diff no código.
-
-**Tarefas:**
-1. Injetar script de seleção de elementos no iframe do sandbox
-2. Ao clicar, identificar componente React e localizar no `ProjectFile`
-3. Painel de edição (cor, fonte, espaçamento) gera patch no arquivo
-4. Aplicar patch → rebuild → preview atualiza
-
----
-
-### Fase 7 — Plataforma (Export, GitHub, Deploy, BYO-Key)
-
-**Objetivo:** funcionalidades de plataforma que diferenciam do Lovable.
-
-**Tarefas:**
-1. **Export:** `GET /api/projects/[id]/export` → ZIP com todos os `ProjectFile`
-2. **BYO-Key UI:** página de configurações do usuário com campo para inserir suas próprias API keys (criptografadas no banco)
-3. **GitHub:** OAuth GitHub App, push/pull de `ProjectFile` para repositório do usuário
-4. **Deploy:** integração Vercel API — `POST /api/projects/[id]/deploy` dispara deploy e retorna URL
-
----
-
-### Fase 8 — Colaboração em Tempo Real
-
-**Objetivo:** múltiplos usuários no mesmo builder.
-
-**Tarefas:**
-1. Adicionar **Liveblocks** ou **Partykit** para presença e cursores
-2. Sincronizar `ProjectFile` em tempo real (CRDT ou OT simples)
-3. Chat compartilhado no builder
-
----
-
-## 5. Priorização Resumida para o Agente 2
-
-```
-AGORA (bloqueante para produto viável):
-  └── Fase 3: Banco de dados Prisma/Supabase
-  └── Fase 4: Sistema de arquivos + Sandbox + Preview real
-
-DEPOIS (completa o loop do agente):
-  └── Fase 5: Orquestrador + Tool calls + Plan Mode real + Checkpoints
-
-DEPOIS (diferenciais de plataforma):
-  └── Fase 6: Visual Edits real
-  └── Fase 7: Export + GitHub + Deploy + BYO-Key
-
-FUTURO (vantagem competitiva):
-  └── Fase 8: Colaboração em tempo real
-```
-
----
-
-## 6. Débitos Técnicos Atuais
-
-| Débito | Arquivo | Impacto |
-|---|---|---|
-| Store em memória perde dados no restart | `src/server/store.ts` | 🔴 Bloqueante para produção |
-| Google API key com formato inválido (`AQ.`) | `.env.local` | 🟡 Gemini não funciona |
-| Modos Plan/Visual/Auto sem lógica real | `src/store/chat-store.ts` | 🟡 UI enganosa |
-| Preview e CodePanel com empty state | `preview-pane.tsx`, `code-panel.tsx` | 🔴 Core do produto ausente |
-| Sem testes automatizados (unit/e2e) | — | 🟡 Risco de regressão |
-| `MOCK_PROJECTS` ainda referenciados no store seed | `src/server/store.ts` | 🟢 Cosmético |
-
----
-
-## 7. Variáveis de Ambiente Necessárias nas Próximas Fases
+## 6. Anexo C — Variáveis de Ambiente
 
 ```env
-# Fase 3 — Banco de dados
+# Já existentes
+AUTH_SECRET="..."
+GROQ_API_KEY="..."
+GOOGLE_GENERATIVE_AI_API_KEY="..."
+
+# Etapa 1
 DATABASE_URL="postgresql://..."          # Supabase/Railway/Neon
 
-# Fase 4 — Sandbox
-E2B_API_KEY="..."                        # se usar E2B
-
-# Fase 7 — GitHub OAuth App
+# Futuro
+E2B_API_KEY="..."                        # sandbox cloud (opcional)
 GITHUB_CLIENT_ID="..."
 GITHUB_CLIENT_SECRET="..."
-
-# Fase 7 — Deploy
 VERCEL_TOKEN="..."
 VERCEL_TEAM_ID="..."
 ```
 
 ---
 
-> **Para o Agente 2:** comece pela **Fase 3** (Prisma). É o alicerce que tudo o mais depende. Depois vá direto para a **Fase 4** (sandbox + preview real) — é o coração do produto e o que mais diferencia o SeedCode de um simples chatbot. As fases 5 em diante constroem sobre essa base.
+> **Para o Agente 2:** inicie pela **Etapa 1**. Só depois de ela estar 100% concluída e testada, avance para a **Etapa 2**. A cada sub-tarefa, rode `npm run build` para garantir que nada quebrou.
