@@ -1,0 +1,112 @@
+// =============================================================================
+// Prisma Schema — SeedCode (Etapa 1: Fundação Real)
+// -----------------------------------------------------------------------------
+// Banco: PostgreSQL (Supabase free tier).
+// - DATABASE_URL : connection string com PgBouncer (porta 6543, ?pgbouncer=true)
+//   usada em runtime pela aplicação (pooling).
+// - DIRECT_URL   : conexão direta (porta 5432) usada pelo Prisma Migrate/CLI.
+// Models de auth seguem o padrão do @auth/prisma-adapter (NextAuth v5).
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Autenticação (NextAuth v5 / @auth/prisma-adapter)
+// -----------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  // Hash bcrypt da senha — presente apenas para contas por credenciais.
+  password      String?
+  // Provedor de origem: "credentials", "google" ou "github".
+  provider      String    @default("credentials")
+  createdAt     DateTime  @default(now())
+
+  accounts Account[]
+  sessions Session[]
+  projects Project[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// -----------------------------------------------------------------------------
+// Domínio SeedCode
+// -----------------------------------------------------------------------------
+
+model Project {
+  id                String        @id @default(cuid())
+  name              String
+  description       String        @default("")
+  status            String        @default("draft")
+  framework         String        @default("Next.js")
+  llm               String        @default("llama-3.3-70b-versatile")
+  thumbnailGradient String        @default("from-emerald-500 to-teal-600")
+  ownerId           String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  owner User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  files ProjectFile[]
+
+  @@index([ownerId])
+}
+
+model ProjectFile {
+  id        String   @id @default(cuid())
+  projectId String
+  path      String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, path])
+  @@index([projectId])
+}

@@ -16,7 +16,7 @@ export default async function BuilderPage({ params }: { params: { projectId: str
   }
 
   // Busca o projeto real do store, validando que pertence ao usuário logado.
-  const project = getProjectForOwner(params.projectId, session.user.id);
+  const project = await getProjectForOwner(params.projectId, session.user.id);
 
   // Projeto inexistente ou de outro usuário → volta ao dashboard.
   if (!project) {
@@ -33,13 +33,13 @@ export default async function BuilderPage({ params }: { params: { projectId: str
           independente, sem esticar as demais colunas. */}
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-1 overflow-hidden lg:grid-cols-[360px_1fr_380px]">
         <div className="hidden min-h-0 overflow-hidden border-r border-border/60 lg:block">
-          <ChatPanel />
+          <ChatPanel projectId={project.id} />
         </div>
         <div className="min-h-0 overflow-hidden">
-          <PreviewPane projectName={projectName} />
+          <PreviewPane projectId={project.id} projectName={projectName} />
         </div>
         <div className="hidden min-h-0 overflow-hidden border-l border-border/60 lg:block">
-          <CodePanel projectName={projectName} />
+          <CodePanel projectId={project.id} projectName={projectName} />
         </div>
       </div>
     </div>

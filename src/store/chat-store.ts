@@ -1,12 +1,16 @@
 import { create } from "zustand";
 import type {
   AgentMode,
+  AgentStep,
   ChatMessage,
   LLMId,
   CostSnapshot,
   FallbackInfo,
   ProviderUsage,
 } from "@/lib/types";
+import { parseCodeBlocks } from "@/lib/parse-code-blocks";
+import { emitFilesChanged } from "@/lib/builder-events";
+import { toast } from "@/store/toast-store";
 
 // Gerador de ids únicos e crescentes para as mensagens.
 let idCounter = 0;
@@ -35,6 +39,9 @@ interface ChatState {
   cost: CostSnapshot;
   // Snapshot de uso/limites dos provedores (para o painel de transparência).
   providers: ProviderUsage[];
+  // Projeto ativo no builder: alvo dos arquivos gerados pela IA.
+  projectId: string | null;
+  setProjectId: (projectId: string | null) => void;
   setMode: (mode: AgentMode) => void;
   setLLM: (llm: LLMId) => void;
   sendMessage: (content: string) => Promise<void>;
@@ -49,7 +56,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isThinking: false,
   cost: { tokensUsed: 0, costUsd: 0, requests: 0 },
   providers: [],
+  projectId: null,
 
+  setProjectId: (projectId) => set({ projectId }),
   setMode: (mode) => set({ mode }),
   setLLM: (llm) => set({ llm }),
 
@@ -165,6 +174,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
       }));
       void get().fetchProviderStatus();
+
+      // 5. Persiste os arquivos gerados (blocos com path=) no projeto ativo e
+      // recarrega o preview. Cada arquivo vira um "passo" exibido na bolha.
+      await persistGeneratedFiles(get().projectId, full, assistantId, set);
     } catch {
       // Falha de rede inesperada.
       set((s) => ({
@@ -187,3 +200,57 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ),
     })),
 }));
+
+// Assinatura mínima do `set` do zustand usada pelo helper abaixo.
+type ChatSet = (fn: (state: ChatState) => Partial<ChatState>) => void;
+
+// Faz o parse dos blocos de código da resposta e grava cada arquivo no projeto
+// via API. Anota o resultado (sucesso/erro por arquivo) como "passos" na bolha
+// do assistente e dispara o evento que recarrega o preview.
+async function persistGeneratedFiles(
+  projectId: string | null,
+  fullText: string,
+  assistantId: string,
+  set: ChatSet,
+): Promise<void> {
+  if (!projectId) return;
+
+  const files = parseCodeBlocks(fullText);
+  if (files.length === 0) return;
+
+  const steps: AgentStep[] = [];
+  for (const file of files) {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/files`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: file.path, content: file.content }),
+      });
+      steps.push({
+        id: `${assistantId}-${file.path}`,
+        label: res.ok ? `Arquivo salvo: ${file.path}` : `Falha ao salvar: ${file.path}`,
+        state: res.ok ? "done" : "error",
+      });
+    } catch {
+      steps.push({
+        id: `${assistantId}-${file.path}`,
+        label: `Falha ao salvar: ${file.path}`,
+        state: "error",
+      });
+    }
+  }
+
+  set((s) => ({
+    messages: s.messages.map((m) =>
+      m.id === assistantId ? { ...m, steps } : m,
+    ),
+  }));
+
+  emitFilesChanged(projectId);
+
+  // Feedback consolidado via toast.
+  const failed = steps.filter((s) => s.state === "error").length;
+  const ok = steps.length - failed;
+  if (ok > 0) toast.success(`${ok} arquivo(s) gerado(s) pela IA.`);
+  if (failed > 0) toast.error(`${failed} arquivo(s) falharam ao salvar.`);
+}

@@ -29,8 +29,8 @@ export default async function NewBuilderPage({ searchParams }: Props) {
     ? rawPrompt.slice(0, 60)           // limita a 60 chars para o título
     : "Novo projeto";
 
-  // Cria o projeto no store e redireciona para o builder com o id gerado.
-  const project = createProject(session.user.id, {
+  // Cria o projeto no banco e redireciona para o builder com o id gerado.
+  const project = await createProject(session.user.id, {
     name,
     description: rawPrompt,
   });

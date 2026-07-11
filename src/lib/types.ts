@@ -39,6 +39,15 @@ export interface Project {
   ownerId?: string;
 }
 
+// Arquivo pertencente a um projeto (sistema de arquivos virtual).
+export interface ProjectFile {
+  id: string;
+  projectId: string;
+  path: string;
+  content: string;
+  updatedAt: string;
+}
+
 export interface Template {
   id: string;
   name: string;

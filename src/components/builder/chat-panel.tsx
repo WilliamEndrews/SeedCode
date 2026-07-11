@@ -18,11 +18,19 @@ function modelName(id: LLMId): string {
   return LLM_OPTIONS.find((o) => o.id === id)?.name ?? id;
 }
 
-export function ChatPanel() {
+export function ChatPanel({ projectId }: { projectId: string }) {
   const messages = useChatStore((s) => s.messages);
   const isThinking = useChatStore((s) => s.isThinking);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const setProjectId = useChatStore((s) => s.setProjectId);
   const [input, setInput] = React.useState("");
+
+  // Registra o projeto ativo para que os arquivos gerados pela IA sejam
+  // gravados no projeto correto. Limpa ao desmontar.
+  React.useEffect(() => {
+    setProjectId(projectId);
+    return () => setProjectId(null);
+  }, [projectId, setProjectId]);
   // Painel de status/custo recolhível (fechado por padrão) para não ocupar
   // espaço vertical e garantir que o input e as mensagens fiquem sempre visíveis.
   const [showStats, setShowStats] = React.useState(false);

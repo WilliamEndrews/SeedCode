@@ -33,7 +33,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  const project = getProjectForOwner(params.id, session.user.id);
+  const project = await getProjectForOwner(params.id, session.user.id);
   if (!project) {
     return NextResponse.json({ error: "Projeto não encontrado." }, { status: 404 });
   }
@@ -63,7 +63,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
 
-  const project = updateProject(params.id, session.user.id, parsed.data);
+  const project = await updateProject(params.id, session.user.id, parsed.data);
   if (!project) {
     return NextResponse.json({ error: "Projeto não encontrado." }, { status: 404 });
   }
@@ -78,7 +78,7 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  const removed = deleteProject(params.id, session.user.id);
+  const removed = await deleteProject(params.id, session.user.id);
   if (!removed) {
     return NextResponse.json({ error: "Projeto não encontrado." }, { status: 404 });
   }

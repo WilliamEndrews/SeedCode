@@ -1,61 +1,44 @@
 // =============================================================================
-// Store em memória (TEMPORÁRIO — Fase 2A)
+// Store de dados — Prisma / PostgreSQL (Supabase)
 // -----------------------------------------------------------------------------
-// Guarda usuários e projetos apenas em RAM. Serve para dar vida à autenticação
-// e à API de projetos enquanto o banco de dados real (Prisma/Supabase) não
-// existe. Na Fase 2B este arquivo será substituído por consultas ao banco.
-//
-// Usamos `globalThis` para preservar os dados entre os hot-reloads do Next.js
-// em desenvolvimento (cada reload reavalia o módulo e, sem isso, perderíamos
-// os cadastros feitos em tempo de execução).
+// Camada de acesso a dados para USUÁRIOS e PROJETOS. Substitui o antigo store
+// em memória por consultas reais ao banco via Prisma. Todas as funções são
+// assíncronas. Os mapeadores convertem os models do Prisma (com Date) para os
+// tipos de domínio da aplicação (com datas em string ISO).
 // =============================================================================
 
 import bcrypt from "bcryptjs";
-import type { Project, User } from "@/lib/types";
-import { MOCK_PROJECTS } from "@/lib/mock-data";
+import type { Project as PrismaProject, User as PrismaUser } from "@prisma/client";
+import { prisma } from "@/server/db";
+import type { LLMId, Project, User } from "@/lib/types";
 
-// Formato do container global que sobrevive aos hot-reloads.
-interface SeedCodeStore {
-  users: User[];
-  projects: Project[];
-  seeded: boolean;
+// -----------------------------------------------------------------------------
+// Mapeadores model (Prisma) → tipo de domínio (app)
+// -----------------------------------------------------------------------------
+
+function toUser(u: PrismaUser): User {
+  return {
+    id: u.id,
+    name: u.name ?? "",
+    email: u.email,
+    passwordHash: u.password ?? undefined,
+    provider: u.provider,
+    createdAt: u.createdAt.toISOString(),
+  };
 }
 
-// Recupera (ou cria) o store único no escopo global.
-const globalForStore = globalThis as unknown as { __seedcodeStore?: SeedCodeStore };
-
-const store: SeedCodeStore =
-  globalForStore.__seedcodeStore ?? {
-    users: [],
-    projects: [],
-    seeded: false,
+function toProject(p: PrismaProject): Project {
+  return {
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    status: p.status as Project["status"],
+    framework: p.framework,
+    updatedAt: p.updatedAt.toISOString(),
+    thumbnailGradient: p.thumbnailGradient,
+    llm: p.llm as LLMId,
+    ownerId: p.ownerId,
   };
-
-globalForStore.__seedcodeStore = store;
-
-// -----------------------------------------------------------------------------
-// Semeadura inicial: um usuário demo + os projetos mock atribuídos a ele.
-// Executa apenas uma vez por processo.
-// -----------------------------------------------------------------------------
-if (!store.seeded) {
-  const demoUser: User = {
-    id: "user-demo",
-    name: "Demo SeedCode",
-    email: "demo@seedcode.dev",
-    // Senha padrão do usuário demo: "seedcode123".
-    passwordHash: bcrypt.hashSync("seedcode123", 10),
-    provider: "credentials",
-    createdAt: new Date().toISOString(),
-  };
-
-  store.users.push(demoUser);
-
-  // Vincula os projetos mock ao usuário demo para popular o dashboard.
-  store.projects.push(
-    ...MOCK_PROJECTS.map((project) => ({ ...project, ownerId: demoUser.id })),
-  );
-
-  store.seeded = true;
 }
 
 // =============================================================================
@@ -63,14 +46,16 @@ if (!store.seeded) {
 // =============================================================================
 
 // Busca um usuário pelo e-mail (case-insensitive).
-export function findUserByEmail(email: string): User | undefined {
+export async function findUserByEmail(email: string): Promise<User | undefined> {
   const normalized = email.trim().toLowerCase();
-  return store.users.find((user) => user.email.toLowerCase() === normalized);
+  const user = await prisma.user.findUnique({ where: { email: normalized } });
+  return user ? toUser(user) : undefined;
 }
 
 // Busca um usuário pelo id.
-export function findUserById(id: string): User | undefined {
-  return store.users.find((user) => user.id === id);
+export async function findUserById(id: string): Promise<User | undefined> {
+  const user = await prisma.user.findUnique({ where: { id } });
+  return user ? toUser(user) : undefined;
 }
 
 // Cria um novo usuário por credenciais (e-mail + senha), com hash bcrypt.
@@ -82,43 +67,43 @@ export async function createUser(params: {
 }): Promise<User> {
   const email = params.email.trim().toLowerCase();
 
-  if (findUserByEmail(email)) {
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
     throw new Error("E-mail já cadastrado.");
   }
 
-  const user: User = {
-    id: `user-${crypto.randomUUID()}`,
-    name: params.name.trim(),
-    email,
-    passwordHash: await bcrypt.hash(params.password, 10),
-    provider: "credentials",
-    createdAt: new Date().toISOString(),
-  };
+  const user = await prisma.user.create({
+    data: {
+      name: params.name.trim(),
+      email,
+      password: await bcrypt.hash(params.password, 10),
+      provider: "credentials",
+    },
+  });
 
-  store.users.push(user);
-  return user;
+  return toUser(user);
 }
 
 // Garante que exista um usuário para um login OAuth (Google/GitHub).
 // Se já existir pelo e-mail, retorna-o; caso contrário, cria um novo.
-export function upsertOAuthUser(params: {
+export async function upsertOAuthUser(params: {
   name: string;
   email: string;
   provider: string;
-}): User {
-  const existing = findUserByEmail(params.email);
-  if (existing) return existing;
+}): Promise<User> {
+  const email = params.email.trim().toLowerCase();
 
-  const user: User = {
-    id: `user-${crypto.randomUUID()}`,
-    name: params.name,
-    email: params.email.trim().toLowerCase(),
-    provider: params.provider,
-    createdAt: new Date().toISOString(),
-  };
+  const user = await prisma.user.upsert({
+    where: { email },
+    update: {},
+    create: {
+      name: params.name,
+      email,
+      provider: params.provider,
+    },
+  });
 
-  store.users.push(user);
-  return user;
+  return toUser(user);
 }
 
 // Valida credenciais de login comparando a senha com o hash armazenado.
@@ -127,11 +112,12 @@ export async function verifyCredentials(
   email: string,
   password: string,
 ): Promise<User | null> {
-  const user = findUserByEmail(email);
-  if (!user?.passwordHash) return null;
+  const normalized = email.trim().toLowerCase();
+  const user = await prisma.user.findUnique({ where: { email: normalized } });
+  if (!user?.password) return null;
 
-  const isValid = await bcrypt.compare(password, user.passwordHash);
-  return isValid ? user : null;
+  const isValid = await bcrypt.compare(password, user.password);
+  return isValid ? toUser(user) : null;
 }
 
 // =============================================================================
@@ -139,19 +125,25 @@ export async function verifyCredentials(
 // =============================================================================
 
 // Lista todos os projetos de um usuário, dos mais recentes aos mais antigos.
-export function listProjectsByOwner(ownerId: string): Project[] {
-  return store.projects
-    .filter((project) => project.ownerId === ownerId)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+export async function listProjectsByOwner(ownerId: string): Promise<Project[]> {
+  const projects = await prisma.project.findMany({
+    where: { ownerId },
+    orderBy: { updatedAt: "desc" },
+  });
+  return projects.map(toProject);
 }
 
 // Busca um projeto específico garantindo que pertence ao usuário informado.
-export function getProjectForOwner(id: string, ownerId: string): Project | undefined {
-  return store.projects.find((project) => project.id === id && project.ownerId === ownerId);
+export async function getProjectForOwner(
+  id: string,
+  ownerId: string,
+): Promise<Project | undefined> {
+  const project = await prisma.project.findFirst({ where: { id, ownerId } });
+  return project ? toProject(project) : undefined;
 }
 
 // Cria um novo projeto vinculado ao usuário.
-export function createProject(
+export async function createProject(
   ownerId: string,
   data: {
     name: string;
@@ -159,45 +151,39 @@ export function createProject(
     framework?: string;
     llm?: Project["llm"];
   },
-): Project {
-  const project: Project = {
-    id: `proj-${crypto.randomUUID()}`,
-    name: data.name,
-    description: data.description ?? "",
-    status: "draft",
-    framework: data.framework ?? "Next.js",
-    updatedAt: new Date().toISOString(),
-    // Gradiente padrão para a thumbnail do card no dashboard.
-    thumbnailGradient: "from-emerald-500 to-teal-600",
-    llm: data.llm ?? "llama-3.3-70b-versatile",
-    ownerId,
-  };
-
-  store.projects.push(project);
-  return project;
+): Promise<Project> {
+  const project = await prisma.project.create({
+    data: {
+      name: data.name,
+      description: data.description ?? "",
+      framework: data.framework ?? "Next.js",
+      llm: data.llm ?? "llama-3.3-70b-versatile",
+      ownerId,
+    },
+  });
+  return toProject(project);
 }
 
 // Atualiza campos parciais de um projeto do usuário. Retorna o projeto
 // atualizado ou `undefined` se ele não existir/pertencer a outro usuário.
-export function updateProject(
+export async function updateProject(
   id: string,
   ownerId: string,
   patch: Partial<Pick<Project, "name" | "description" | "framework" | "llm" | "status">>,
-): Project | undefined {
-  const project = getProjectForOwner(id, ownerId);
-  if (!project) return undefined;
+): Promise<Project | undefined> {
+  // Garante a posse antes de atualizar (updateMany não vaza recurso alheio).
+  const result = await prisma.project.updateMany({
+    where: { id, ownerId },
+    data: patch,
+  });
+  if (result.count === 0) return undefined;
 
-  Object.assign(project, patch, { updatedAt: new Date().toISOString() });
-  return project;
+  const project = await prisma.project.findUnique({ where: { id } });
+  return project ? toProject(project) : undefined;
 }
 
 // Remove um projeto do usuário. Retorna `true` se algo foi removido.
-export function deleteProject(id: string, ownerId: string): boolean {
-  const index = store.projects.findIndex(
-    (project) => project.id === id && project.ownerId === ownerId,
-  );
-  if (index === -1) return false;
-
-  store.projects.splice(index, 1);
-  return true;
+export async function deleteProject(id: string, ownerId: string): Promise<boolean> {
+  const result = await prisma.project.deleteMany({ where: { id, ownerId } });
+  return result.count > 0;
 }

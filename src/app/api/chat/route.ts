@@ -31,20 +31,34 @@ const bodySchema = z.object({
   mode: z.enum(["agent", "plan", "visual", "auto"]).optional(),
 });
 
+// Protocolo de geração de arquivos: instruções que fazem o modelo emitir cada
+// arquivo em um bloco de código cujo info-string carrega o caminho (path=...).
+// O cliente faz o parse desses blocos e grava os arquivos no projeto.
+const FILE_PROTOCOL = `
+PROTOCOLO DE ARQUIVOS (obrigatório ao criar ou alterar código):
+- Escreva CADA arquivo em um bloco de código cercado cujo info-string começa com o caminho, no formato:
+  \`\`\`html path=index.html
+  <conteúdo COMPLETO do arquivo>
+  \`\`\`
+- Sempre inclua o conteúdo COMPLETO do arquivo (nunca use "..." ou omita trechos).
+- Para apps estáticos, gere ao menos "index.html". Use "styles.css" e "script.js" quando fizer sentido.
+- No index.html, referencie os assets com <link rel="stylesheet" href="styles.css"> e <script src="script.js"></script>.
+- Escreva um texto curto explicando o que criou ANTES ou DEPOIS dos blocos; a explicação nunca deve ir dentro dos blocos de arquivo.`;
+
 // Instrução de sistema conforme o modo de trabalho selecionado no builder.
 function systemPromptFor(mode: string | undefined): string {
   const base =
-    "Você é o Agente SeedCode, um assistente de engenharia de software que ajuda a construir aplicações web (Next.js, React, TypeScript, Tailwind). Responda em português do Brasil, de forma objetiva e técnica.";
+    "Você é o Agente SeedCode, um assistente de engenharia de software que ajuda a construir aplicações web (HTML, CSS, JS e, quando pedido, React/Next.js/Tailwind). Responda em português do Brasil, de forma objetiva e técnica.";
 
   switch (mode) {
     case "plan":
       return `${base} No modo PLAN, não escreva código final: proponha um plano claro em passos numerados, discutindo decisões e trade-offs.`;
     case "visual":
-      return `${base} No modo VISUAL, foque em ajustes de UI/estilo (Tailwind), explicando as mudanças de forma sucinta.`;
+      return `${base} No modo VISUAL, foque em ajustes de UI/estilo. Ao alterar arquivos, siga o protocolo abaixo.\n${FILE_PROTOCOL}`;
     case "auto":
-      return `${base} No modo AUTO, seja proativo: além de atender o pedido, sugira melhorias relevantes.`;
+      return `${base} No modo AUTO, seja proativo: além de atender o pedido, sugira melhorias relevantes. Ao escrever código, siga o protocolo abaixo.\n${FILE_PROTOCOL}`;
     default:
-      return `${base} No modo AGENT, execute a solicitação escrevendo o código necessário com explicações curtas.`;
+      return `${base} No modo AGENT, execute a solicitação escrevendo o código necessário com explicações curtas, seguindo o protocolo abaixo.\n${FILE_PROTOCOL}`;
   }
 }
 

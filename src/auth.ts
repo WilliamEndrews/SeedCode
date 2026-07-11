@@ -57,7 +57,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // sincroniza o id interno para os callbacks seguintes.
     async signIn({ user, account }) {
       if (account?.provider === "google" || account?.provider === "github") {
-        const internal = upsertOAuthUser({
+        const internal = await upsertOAuthUser({
           name: user.name ?? "Usuário",
           email: user.email ?? "",
           provider: account.provider,

@@ -2,11 +2,56 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
-import { Monitor, Smartphone, RefreshCw, ExternalLink, Sparkles } from "lucide-react";
+import { Monitor, Smartphone, RefreshCw, Sparkles, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FILES_CHANGED_EVENT } from "@/lib/builder-events";
 
-export function PreviewPane({ projectName }: { projectName: string }) {
+export function PreviewPane({
+  projectId,
+  projectName,
+}: {
+  projectId: string;
+  projectName: string;
+}) {
   const [device, setDevice] = React.useState<"desktop" | "mobile">("desktop");
+  const [html, setHtml] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  // Busca o HTML montado pelo sandbox a partir dos arquivos do projeto.
+  const loadPreview = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/preview`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { html: string | null };
+        setHtml(data.html);
+      } else {
+        setHtml(null);
+      }
+    } catch {
+      setHtml(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  // Carrega ao montar e sempre que os arquivos do projeto mudarem (evento
+  // disparado pelo editor/agente após salvar).
+  React.useEffect(() => {
+    loadPreview();
+
+    function onFilesChanged(event: Event) {
+      const detail = (event as CustomEvent<{ projectId?: string }>).detail;
+      if (!detail?.projectId || detail.projectId === projectId) {
+        loadPreview();
+      }
+    }
+
+    window.addEventListener(FILES_CHANGED_EVENT, onFilesChanged);
+    return () => window.removeEventListener(FILES_CHANGED_EVENT, onFilesChanged);
+  }, [loadPreview, projectId]);
 
   return (
     <div className="flex h-full flex-col bg-secondary/30">
@@ -29,11 +74,12 @@ export function PreviewPane({ projectName }: { projectName: string }) {
           localhost:3000
         </div>
         <div className="flex items-center gap-1">
-          <button className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary">
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          <button className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary">
-            <ExternalLink className="h-4 w-4" />
+          <button
+            onClick={loadPreview}
+            title="Recarregar preview"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary"
+          >
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           </button>
         </div>
       </div>
@@ -46,15 +92,27 @@ export function PreviewPane({ projectName }: { projectName: string }) {
             device === "desktop" ? "h-full w-full" : "h-[600px] w-[320px]"
           )}
         >
-          <EmptyPreview projectName={projectName} />
+          {loading && html === null ? (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : html ? (
+            <iframe
+              title={`Preview de ${projectName}`}
+              srcDoc={html}
+              sandbox="allow-scripts allow-forms allow-modals allow-popups"
+              className="h-full w-full border-0 bg-white"
+            />
+          ) : (
+            <EmptyPreview projectName={projectName} />
+          )}
         </motion.div>
       </div>
     </div>
   );
 }
 
-// Estado vazio exibido enquanto o app ainda não foi gerado. A geração real de
-// preview será implementada em fase futura (sandbox/execução).
+// Estado vazio exibido enquanto o projeto ainda não tem um index.html.
 function EmptyPreview({ projectName }: { projectName: string }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">

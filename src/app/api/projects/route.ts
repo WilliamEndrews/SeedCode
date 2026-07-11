@@ -26,7 +26,7 @@ export async function GET() {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  const projects = listProjectsByOwner(session.user.id);
+  const projects = await listProjectsByOwner(session.user.id);
   return NextResponse.json({ projects });
 }
 
@@ -54,6 +54,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const project = createProject(session.user.id, parsed.data);
+  const project = await createProject(session.user.id, parsed.data);
   return NextResponse.json({ project }, { status: 201 });
 }
