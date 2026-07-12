@@ -74,6 +74,14 @@ export interface ChatMessage {
   fallback?: FallbackInfo;
   // Marca uma resposta que terminou em erro (ex.: todos os modelos falharam).
   error?: boolean;
+  // Diffs dos arquivos alterados/gerados pela IA nesta mensagem.
+  diffs?: FileDiff[];
+}
+
+export interface FileDiff {
+  path: string;
+  before: string;
+  after: string;
 }
 
 export interface PlanStep {

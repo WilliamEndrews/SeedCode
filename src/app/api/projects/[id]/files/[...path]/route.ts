@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { deleteFile, getFile } from "@/server/project-files";
+import { checkFileRateLimit } from "@/server/file-rate-limit";
 
 interface RouteContext {
   params: { id: string; path: string[] };
@@ -39,6 +40,14 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
+
+  const rate = checkFileRateLimit(session.user.id);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: `Muitas requisições. Tente novamente em ${rate.retryAfter}s.` },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfter) } },
+    );
   }
 
   const path = params.path.join("/");

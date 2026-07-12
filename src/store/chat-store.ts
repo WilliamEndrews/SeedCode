@@ -206,7 +206,8 @@ type ChatSet = (fn: (state: ChatState) => Partial<ChatState>) => void;
 
 // Faz o parse dos blocos de código da resposta e grava cada arquivo no projeto
 // via API. Anota o resultado (sucesso/erro por arquivo) como "passos" na bolha
-// do assistente e dispara o evento que recarrega o preview.
+// do assistente, computa diffs dos arquivos alterados e dispara o evento que
+// recarrega o preview.
 async function persistGeneratedFiles(
   projectId: string | null,
   fullText: string,
@@ -218,7 +219,12 @@ async function persistGeneratedFiles(
   const files = parseCodeBlocks(fullText);
   if (files.length === 0) return;
 
+  // Captura o estado atual dos arquivos para gerar os diffs.
+  const existing = await fetchCurrentFiles(projectId);
+
   const steps: AgentStep[] = [];
+  const diffs: import("@/lib/types").FileDiff[] = [];
+
   for (const file of files) {
     try {
       const res = await fetch(`/api/projects/${projectId}/files`, {
@@ -231,6 +237,13 @@ async function persistGeneratedFiles(
         label: res.ok ? `Arquivo salvo: ${file.path}` : `Falha ao salvar: ${file.path}`,
         state: res.ok ? "done" : "error",
       });
+      if (res.ok) {
+        diffs.push({
+          path: file.path,
+          before: existing.get(file.path) ?? "",
+          after: file.content,
+        });
+      }
     } catch {
       steps.push({
         id: `${assistantId}-${file.path}`,
@@ -242,7 +255,7 @@ async function persistGeneratedFiles(
 
   set((s) => ({
     messages: s.messages.map((m) =>
-      m.id === assistantId ? { ...m, steps } : m,
+      m.id === assistantId ? { ...m, steps, diffs: diffs.length > 0 ? diffs : undefined } : m,
     ),
   }));
 
@@ -253,4 +266,15 @@ async function persistGeneratedFiles(
   const ok = steps.length - failed;
   if (ok > 0) toast.success(`${ok} arquivo(s) gerado(s) pela IA.`);
   if (failed > 0) toast.error(`${failed} arquivo(s) falharam ao salvar.`);
+}
+
+async function fetchCurrentFiles(projectId: string): Promise<Map<string, string>> {
+  try {
+    const res = await fetch(`/api/projects/${projectId}/files`, { cache: "no-store" });
+    if (!res.ok) return new Map();
+    const data = (await res.json()) as { files: { path: string; content: string }[] };
+    return new Map(data.files.map((f) => [f.path, f.content]));
+  } catch {
+    return new Map();
+  }
 }

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowUp, ArrowRightLeft, Check, ChevronDown, CircleDashed, Cpu, Gauge, Loader2, Sparkles, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowUp, ArrowRightLeft, Check, ChevronDown, CircleDashed, Cpu, FileDiff, Gauge, Loader2, Sparkles, CheckCircle2, XCircle } from "lucide-react";
 import type { ChatMessage, LLMId } from "@/lib/types";
 import { useChatStore } from "@/store/chat-store";
 import { LLM_OPTIONS } from "@/lib/mock-data";
@@ -10,6 +10,7 @@ import { ModeSwitcher } from "./mode-switcher";
 import { LLMSelector } from "./llm-selector";
 import { CostPanel } from "./cost-panel";
 import { ProviderStatusPanel } from "./provider-status-panel";
+import { DiffViewer } from "./diff-viewer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -124,6 +125,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
   const approvePlanStep = useChatStore((s) => s.approvePlanStep);
+  const [activeDiff, setActiveDiff] = React.useState<number | null>(null);
 
   return (
     <motion.div
@@ -159,6 +161,38 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {!isUser && message.respondedBy && (
           <div className="mt-2 flex items-center gap-1 text-[10px] text-muted-foreground">
             <Cpu className="h-3 w-3" /> {modelName(message.respondedBy)}
+          </div>
+        )}
+
+        {message.diffs && message.diffs.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Arquivos alterados</div>
+            {message.diffs.map((diff, idx) => (
+              <button
+                key={diff.path}
+                onClick={() => setActiveDiff(activeDiff === idx ? null : idx)}
+                className={cn(
+                  "flex w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-left text-xs transition-colors",
+                  activeDiff === idx
+                    ? "border-primary bg-primary/10"
+                    : "border-border/60 bg-background/60 hover:bg-background"
+                )}
+              >
+                <FileDiff className="h-3 w-3 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1 truncate">{diff.path}</span>
+                {diff.before ? "(modificado)" : "(novo)"}
+              </button>
+            ))}
+            {activeDiff !== null && message.diffs[activeDiff] && (
+              <div className="h-64 overflow-hidden rounded-lg border border-border/60">
+                <DiffViewer
+                  before={message.diffs[activeDiff].before}
+                  after={message.diffs[activeDiff].after}
+                  filename={message.diffs[activeDiff].path}
+                  onClose={() => setActiveDiff(null)}
+                />
+              </div>
+            )}
           </div>
         )}
 

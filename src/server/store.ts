@@ -124,21 +124,21 @@ export async function verifyCredentials(
 // Funções de acesso a PROJETOS
 // =============================================================================
 
-// Lista todos os projetos de um usuário, dos mais recentes aos mais antigos.
+// Lista todos os projetos ativos (não deletados) de um usuário, dos mais recentes aos mais antigos.
 export async function listProjectsByOwner(ownerId: string): Promise<Project[]> {
   const projects = await prisma.project.findMany({
-    where: { ownerId },
+    where: { ownerId, deletedAt: null },
     orderBy: { updatedAt: "desc" },
   });
   return projects.map(toProject);
 }
 
-// Busca um projeto específico garantindo que pertence ao usuário informado.
+// Busca um projeto ativo específico garantindo que pertence ao usuário informado.
 export async function getProjectForOwner(
   id: string,
   ownerId: string,
 ): Promise<Project | undefined> {
-  const project = await prisma.project.findFirst({ where: { id, ownerId } });
+  const project = await prisma.project.findFirst({ where: { id, ownerId, deletedAt: null } });
   return project ? toProject(project) : undefined;
 }
 
@@ -164,7 +164,7 @@ export async function createProject(
   return toProject(project);
 }
 
-// Atualiza campos parciais de um projeto do usuário. Retorna o projeto
+// Atualiza campos parciais de um projeto ativo do usuário. Retorna o projeto
 // atualizado ou `undefined` se ele não existir/pertencer a outro usuário.
 export async function updateProject(
   id: string,
@@ -173,7 +173,7 @@ export async function updateProject(
 ): Promise<Project | undefined> {
   // Garante a posse antes de atualizar (updateMany não vaza recurso alheio).
   const result = await prisma.project.updateMany({
-    where: { id, ownerId },
+    where: { id, ownerId, deletedAt: null },
     data: patch,
   });
   if (result.count === 0) return undefined;
@@ -182,8 +182,11 @@ export async function updateProject(
   return project ? toProject(project) : undefined;
 }
 
-// Remove um projeto do usuário. Retorna `true` se algo foi removido.
+// Soft-delete de um projeto do usuário. Retorna `true` se algo foi deletado.
 export async function deleteProject(id: string, ownerId: string): Promise<boolean> {
-  const result = await prisma.project.deleteMany({ where: { id, ownerId } });
+  const result = await prisma.project.updateMany({
+    where: { id, ownerId, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
   return result.count > 0;
 }

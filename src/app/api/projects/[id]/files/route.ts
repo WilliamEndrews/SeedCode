@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { listFiles, writeFile } from "@/server/project-files";
+import { checkFileRateLimit } from "@/server/file-rate-limit";
 
 interface RouteContext {
   params: { id: string };
@@ -40,6 +41,14 @@ export async function POST(request: Request, { params }: RouteContext) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
+
+  const rate = checkFileRateLimit(session.user.id);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: `Muitas requisições. Tente novamente em ${rate.retryAfter}s.` },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfter) } },
+    );
   }
 
   let body: unknown;
