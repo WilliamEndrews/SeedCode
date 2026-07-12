@@ -16,10 +16,12 @@ export function PreviewPane({
   const [device, setDevice] = React.useState<"desktop" | "mobile">("desktop");
   const [html, setHtml] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
   // Busca o HTML montado pelo sandbox a partir dos arquivos do projeto.
   const loadPreview = React.useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/preview`, {
         cache: "no-store",
@@ -29,9 +31,11 @@ export function PreviewPane({
         setHtml(data.html);
       } else {
         setHtml(null);
+        setError(`Erro ${res.status}: não foi possível carregar o preview.`);
       }
     } catch {
       setHtml(null);
+      setError("Erro de conexão ao carregar o preview.");
     } finally {
       setLoading(false);
     }
@@ -71,7 +75,7 @@ export function PreviewPane({
           </button>
         </div>
         <div className="flex items-center gap-2 rounded-md bg-secondary px-3 py-1 text-xs text-muted-foreground">
-          localhost:3000
+          preview sandbox
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -92,7 +96,17 @@ export function PreviewPane({
             device === "desktop" ? "h-full w-full" : "h-[600px] w-[320px]"
           )}
         >
-          {loading && html === null ? (
+          {error ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-red-500">
+              <p className="text-sm">{error}</p>
+              <button
+                onClick={loadPreview}
+                className="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary/80"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          ) : loading && html === null ? (
             <div className="flex h-full items-center justify-center text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
@@ -100,7 +114,7 @@ export function PreviewPane({
             <iframe
               title={`Preview de ${projectName}`}
               srcDoc={html}
-              sandbox="allow-scripts allow-forms allow-modals allow-popups"
+              sandbox="allow-scripts allow-forms"
               className="h-full w-full border-0 bg-white"
             />
           ) : (

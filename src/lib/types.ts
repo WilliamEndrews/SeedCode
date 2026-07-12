@@ -5,18 +5,23 @@ export type AgentMode = "agent" | "plan" | "visual" | "auto";
 
 export type ProjectStatus = "draft" | "building" | "live" | "error";
 
-// Usuário autenticado. O campo `passwordHash` só existe no servidor
-// (nunca é enviado ao cliente) e será migrado para o banco na Fase 2B.
-export interface User {
+// Usuário autenticado exposto ao cliente (nunca inclui passwordHash).
+export interface PublicUser {
   id: string;
   name: string;
   email: string;
-  // Hash bcrypt da senha — presente apenas para contas criadas por credenciais.
-  passwordHash?: string;
   // Provedor de origem da conta ("credentials", "google" ou "github").
   provider: string;
   createdAt: string;
 }
+
+// Usuário com dados sensíveis do servidor; nunca é enviado ao cliente.
+export interface ServerUser extends PublicUser {
+  passwordHash: string;
+}
+
+// Alias para compatibilidade: `User` no client é sempre o usuário público.
+export type User = PublicUser;
 
 // Dados aceitos ao criar um novo projeto via API (/api/projects).
 export interface CreateProjectInput {

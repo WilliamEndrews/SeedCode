@@ -10,20 +10,28 @@
 import bcrypt from "bcryptjs";
 import type { Project as PrismaProject, User as PrismaUser } from "@prisma/client";
 import { prisma } from "@/server/db";
-import type { LLMId, Project, User } from "@/lib/types";
+import type { LLMId, Project, User, ServerUser } from "@/lib/types";
 
 // -----------------------------------------------------------------------------
 // Mapeadores model (Prisma) → tipo de domínio (app)
 // -----------------------------------------------------------------------------
 
+// Usuário público: nunca expõe passwordHash.
 function toUser(u: PrismaUser): User {
   return {
     id: u.id,
     name: u.name ?? "",
     email: u.email,
-    passwordHash: u.password ?? undefined,
     provider: u.provider,
     createdAt: u.createdAt.toISOString(),
+  };
+}
+
+// Usuário com hash da senha — uso interno no servidor.
+function toServerUser(u: PrismaUser): ServerUser {
+  return {
+    ...toUser(u),
+    passwordHash: u.password ?? "",
   };
 }
 
