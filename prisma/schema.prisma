@@ -37,6 +37,7 @@ model User {
   accounts Account[]
   sessions Session[]
   projects Project[]
+  memberships ProjectMember[]
 }
 
 model Account {
@@ -92,11 +93,32 @@ model Project {
   updatedAt         DateTime      @updatedAt
   deletedAt         DateTime?
 
-  owner User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   files ProjectFile[]
+  members ProjectMember[]
 
   @@index([ownerId])
   @@index([deletedAt])
+}
+
+enum MemberRole {
+  EDITOR
+  VIEWER
+}
+
+model ProjectMember {
+  id        String     @id @default(cuid())
+  projectId String
+  userId    String
+  role      MemberRole @default(EDITOR)
+  createdAt DateTime   @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
 }
 
 model ProjectFile {

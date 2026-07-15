@@ -31,6 +31,8 @@ export interface CreateProjectInput {
   llm?: LLMId;
 }
 
+export type ProjectRole = "owner" | "editor" | "viewer";
+
 export interface Project {
   id: string;
   name: string;
@@ -42,6 +44,8 @@ export interface Project {
   llm: LLMId;
   // Id do usuário dono do projeto. Opcional para os projetos mock legados.
   ownerId?: string;
+  // Papel do usuário autenticado neste projeto (owner/editor/viewer).
+  role?: ProjectRole;
 }
 
 // Arquivo pertencente a um projeto (sistema de arquivos virtual).

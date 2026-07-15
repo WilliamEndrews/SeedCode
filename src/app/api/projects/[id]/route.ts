@@ -10,7 +10,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { deleteProject, getProjectForOwner, updateProject } from "@/server/store";
+import { deleteProject, getProjectAccess, getProjectForOwner, updateProject } from "@/server/store";
 
 // Parâmetros de rota dinâmicos.
 interface RouteContext {
@@ -26,19 +26,19 @@ const patchSchema = z.object({
   status: z.enum(["draft", "building", "live", "error"]).optional(),
 });
 
-// GET /api/projects/[id] — retorna o projeto se pertencer ao usuário.
+// GET /api/projects/[id] — retorna o projeto se o usuário for dono ou membro.
 export async function GET(_request: Request, { params }: RouteContext) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  const project = await getProjectForOwner(params.id, session.user.id);
-  if (!project) {
+  const access = await getProjectAccess(params.id, session.user.id);
+  if (!access) {
     return NextResponse.json({ error: "Projeto não encontrado." }, { status: 404 });
   }
 
-  return NextResponse.json({ project });
+  return NextResponse.json({ project: access.project });
 }
 
 // PATCH /api/projects/[id] — atualiza campos do projeto.

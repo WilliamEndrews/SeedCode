@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { listProjectsByOwner } from "@/server/store";
+import { listProjectsForUser } from "@/server/store";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { NewAppPrompt } from "@/components/dashboard/new-app-prompt";
 import { ProjectCard } from "@/components/dashboard/project-card";
@@ -10,7 +10,7 @@ import { MOCK_TEMPLATES } from "@/lib/mock-data";
 export default async function DashboardPage() {
   const session = await auth();
   // O middleware já protege esta rota; o fallback evita erros de tipo.
-  const projects = session?.user?.id ? await listProjectsByOwner(session.user.id) : [];
+  const projects = session?.user?.id ? await listProjectsForUser(session.user.id) : [];
 
   return (
     <div className="min-h-screen bg-background">

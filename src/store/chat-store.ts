@@ -41,6 +41,9 @@ interface ChatState {
   providers: ProviderUsage[];
   // Projeto ativo no builder: alvo dos arquivos gerados pela IA.
   projectId: string | null;
+  // Histórico de mensagens por projeto (evita que o chat de um projeto
+  // vaze para outro ou seja perdido ao trocar de contexto dentro da SPA).
+  messagesByProject: Record<string, ChatMessage[]>;
   setProjectId: (projectId: string | null) => void;
   setMode: (mode: AgentMode) => void;
   setLLM: (llm: LLMId) => void;
@@ -57,8 +60,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
   cost: { tokensUsed: 0, costUsd: 0, requests: 0 },
   providers: [],
   projectId: null,
+  messagesByProject: {},
 
-  setProjectId: (projectId) => set({ projectId }),
+  setProjectId: (projectId) =>
+    set((s) => {
+      if (s.projectId === projectId) return s;
+      const updates: Partial<ChatState> = { projectId };
+      // Salva a conversa do projeto anterior.
+      if (s.projectId) {
+        updates.messagesByProject = { ...s.messagesByProject, [s.projectId]: s.messages };
+      }
+      // Carrega a conversa do novo projeto (ou começa do welcome).
+      if (projectId) {
+        updates.messages = s.messagesByProject[projectId] ?? [WELCOME];
+      } else {
+        updates.messages = [WELCOME];
+      }
+      return updates;
+    }),
   setMode: (mode) => set({ mode }),
   setLLM: (llm) => set({ llm }),
 

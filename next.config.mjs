@@ -16,6 +16,25 @@ const nextConfig = {
       ],
     },
   },
+  // WebContainer exige SharedArrayBuffer, que requer cross-origin isolation
+  // (COOP/COEP). Aplicamos em todas as rotas para que o preview funcione.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Cross-Origin-Opener-Policy",
+            value: "same-origin-allow-popups",
+          },
+          {
+            key: "Cross-Origin-Embedder-Policy",
+            value: "require-corp",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

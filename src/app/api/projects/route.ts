@@ -9,7 +9,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { createProject, listProjectsByOwner } from "@/server/store";
+import { createProject, listProjectsForUser } from "@/server/store";
 
 // Schema de validação do corpo de criação de projeto.
 const createSchema = z.object({
@@ -26,7 +26,7 @@ export async function GET() {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  const projects = await listProjectsByOwner(session.user.id);
+  const projects = await listProjectsForUser(session.user.id);
   return NextResponse.json({ projects });
 }
 

@@ -9,7 +9,8 @@
 
 import type { ProjectFile as PrismaProjectFile } from "@prisma/client";
 import { prisma } from "@/server/db";
-import type { ProjectFile } from "@/lib/types";
+import type { ProjectFile, ProjectRole } from "@/lib/types";
+import { getProjectAccess, roleMeets } from "@/server/store";
 
 function toProjectFile(f: PrismaProjectFile): ProjectFile {
   return {
@@ -21,18 +22,23 @@ function toProjectFile(f: PrismaProjectFile): ProjectFile {
   };
 }
 
-// Confirma que o projeto existe e pertence ao usuário. Retorna boolean.
-async function userOwnsProject(projectId: string, ownerId: string): Promise<boolean> {
-  const count = await prisma.project.count({ where: { id: projectId, ownerId } });
-  return count > 0;
+// Confirma que o projeto existe e que o usuário tem pelo menos a role exigida.
+async function requireProjectAccess(
+  projectId: string,
+  userId: string,
+  requiredRole: ProjectRole,
+): Promise<boolean> {
+  const access = await getProjectAccess(projectId, userId);
+  if (!access) return false;
+  return roleMeets(requiredRole, access.role);
 }
 
-// Lista todos os arquivos ativos de um projeto do usuário (ordenados por path).
+// Lista todos os arquivos ativos de um projeto que o usuário pode ver.
 export async function listFiles(
   projectId: string,
-  ownerId: string,
+  userId: string,
 ): Promise<ProjectFile[] | null> {
-  if (!(await userOwnsProject(projectId, ownerId))) return null;
+  if (!(await requireProjectAccess(projectId, userId, "viewer"))) return null;
 
   const files = await prisma.projectFile.findMany({
     where: { projectId, deletedAt: null },
@@ -41,14 +47,14 @@ export async function listFiles(
   return files.map(toProjectFile);
 }
 
-// Lê um arquivo ativo específico pelo path. Retorna null se o projeto não
-// pertencer ao usuário; undefined se o arquivo não existir ou estiver deletado.
+// Lê um arquivo ativo específico pelo path. Retorna null se o usuário não
+// tiver acesso; undefined se o arquivo não existir ou estiver deletado.
 export async function getFile(
   projectId: string,
-  ownerId: string,
+  userId: string,
   path: string,
 ): Promise<ProjectFile | null | undefined> {
-  if (!(await userOwnsProject(projectId, ownerId))) return null;
+  if (!(await requireProjectAccess(projectId, userId, "viewer"))) return null;
 
   const file = await prisma.projectFile.findUnique({
     where: { projectId_path: { projectId, path } },
@@ -57,16 +63,15 @@ export async function getFile(
   return toProjectFile(file);
 }
 
-// Cria ou atualiza (upsert) um arquivo pelo path. Toca `updatedAt` do projeto
-// para refletir a atividade no dashboard. Se o arquivo estiver soft-deletado,
-// recria com o novo conteúdo.
+// Cria ou atualiza (upsert) um arquivo pelo path. Requer papel de editor.
+// Toca `updatedAt` do projeto para refletir a atividade no dashboard.
 export async function writeFile(
   projectId: string,
-  ownerId: string,
+  userId: string,
   path: string,
   content: string,
 ): Promise<ProjectFile | null> {
-  if (!(await userOwnsProject(projectId, ownerId))) return null;
+  if (!(await requireProjectAccess(projectId, userId, "editor"))) return null;
 
   const existing = await prisma.projectFile.findUnique({
     where: { projectId_path: { projectId, path } },
@@ -93,14 +98,13 @@ export async function writeFile(
   return toProjectFile(file);
 }
 
-// Soft-delete de um arquivo pelo path. Retorna false se o projeto não pertencer
-// ao usuário ou se nada foi removido.
+// Soft-delete de um arquivo pelo path. Requer papel de editor.
 export async function deleteFile(
   projectId: string,
-  ownerId: string,
+  userId: string,
   path: string,
 ): Promise<boolean> {
-  if (!(await userOwnsProject(projectId, ownerId))) return false;
+  if (!(await requireProjectAccess(projectId, userId, "editor"))) return false;
 
   const result = await prisma.projectFile.updateMany({
     where: { projectId, path, deletedAt: null },

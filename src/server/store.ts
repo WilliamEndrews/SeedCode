@@ -8,9 +8,14 @@
 // =============================================================================
 
 import bcrypt from "bcryptjs";
-import type { Project as PrismaProject, User as PrismaUser } from "@prisma/client";
+import type {
+  Project as PrismaProject,
+  User as PrismaUser,
+  ProjectMember as PrismaProjectMember,
+  MemberRole,
+} from "@prisma/client";
 import { prisma } from "@/server/db";
-import type { LLMId, Project, User, ServerUser } from "@/lib/types";
+import type { LLMId, Project, ProjectRole, User, ServerUser } from "@/lib/types";
 
 // -----------------------------------------------------------------------------
 // Mapeadores model (Prisma) → tipo de domínio (app)
@@ -47,6 +52,17 @@ function toProject(p: PrismaProject): Project {
     llm: p.llm as LLMId,
     ownerId: p.ownerId,
   };
+}
+
+function toProjectWithRole(
+  p: PrismaProject & { members?: { role: MemberRole }[] },
+  userId: string,
+): Project {
+  const role =
+    p.ownerId === userId
+      ? "owner"
+      : (p.members?.[0]?.role.toLowerCase() as "editor" | "viewer" | undefined);
+  return { ...toProject(p), role };
 }
 
 // =============================================================================
@@ -150,6 +166,129 @@ export async function getProjectForOwner(
   return project ? toProject(project) : undefined;
 }
 
+// Lista todos os projetos ativos de um usuário, incluindo os compartilhados.
+export async function listProjectsForUser(userId: string): Promise<Project[]> {
+  const projects = await prisma.project.findMany({
+    where: {
+      deletedAt: null,
+      OR: [{ ownerId: userId }, { members: { some: { userId } } }],
+    },
+    orderBy: { updatedAt: "desc" },
+    include: {
+      members: {
+        where: { userId },
+        select: { role: true },
+      },
+    },
+  });
+  return projects.map((p) => toProjectWithRole(p, userId));
+}
+
+export interface ProjectAccess {
+  project: Project;
+  role: ProjectRole;
+}
+
+// Verifica se o usuário é dono ou membro do projeto. Retorna o projeto com a role.
+export async function getProjectAccess(
+  id: string,
+  userId: string,
+): Promise<ProjectAccess | null> {
+  const project = await prisma.project.findFirst({
+    where: { id, deletedAt: null },
+    include: {
+      members: {
+        where: { userId },
+        select: { role: true },
+      },
+    },
+  });
+  if (!project) return null;
+
+  if (project.ownerId === userId) {
+    return { project: toProjectWithRole(project, userId), role: "owner" };
+  }
+
+  const memberRole = project.members[0]?.role;
+  if (!memberRole) return null;
+
+  return {
+    project: toProjectWithRole(project, userId),
+    role: memberRole.toLowerCase() as ProjectRole,
+  };
+}
+
+// Verifica se a role do usuário atende ao nível mínimo exigido.
+export function roleMeets(required: ProjectRole, actual: ProjectRole): boolean {
+  const levels: Record<ProjectRole, number> = { owner: 3, editor: 2, viewer: 1 };
+  return levels[actual] >= levels[required];
+}
+
+// Lista membros de um projeto (com dados básicos do usuário).
+export async function listProjectMembers(projectId: string, ownerId: string) {
+  const isOwner = await prisma.project.count({
+    where: { id: projectId, ownerId, deletedAt: null },
+  });
+  if (isOwner === 0) return null;
+
+  const members = await prisma.projectMember.findMany({
+    where: { projectId },
+    include: { user: { select: { id: true, email: true, name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return members.map((m) => ({
+    id: m.id,
+    userId: m.userId,
+    email: m.user.email,
+    name: m.user.name,
+    role: m.role.toLowerCase() as ProjectRole,
+  }));
+}
+
+// Adiciona ou atualiza um membro no projeto a partir do e-mail.
+export async function addProjectMember(
+  projectId: string,
+  ownerId: string,
+  email: string,
+  role: "EDITOR" | "VIEWER" = "EDITOR",
+) {
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, ownerId, deletedAt: null },
+  });
+  if (!project) return null;
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  if (!user) return { error: "Usuário não encontrado." };
+  if (user.id === ownerId) return { error: "O dono do projeto já tem acesso." };
+
+  const member = await prisma.projectMember.upsert({
+    where: { projectId_userId: { projectId, userId: user.id } },
+    update: { role },
+    create: { projectId, userId: user.id, role },
+  });
+
+  return { member: { userId: member.userId, email: user.email, role: member.role.toLowerCase() as ProjectRole } };
+}
+
+// Remove um membro do projeto.
+export async function removeProjectMember(
+  projectId: string,
+  ownerId: string,
+  userId: string,
+): Promise<boolean> {
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, ownerId, deletedAt: null },
+  });
+  if (!project) return false;
+
+  const result = await prisma.projectMember.deleteMany({
+    where: { projectId, userId },
+  });
+  return result.count > 0;
+}
+
 // Cria um novo projeto vinculado ao usuário.
 export async function createProject(
   ownerId: string,
@@ -197,4 +336,37 @@ export async function deleteProject(id: string, ownerId: string): Promise<boolea
     data: { deletedAt: new Date() },
   });
   return result.count > 0;
+}
+
+// Duplica um projeto e todos os seus arquivos ativos. Retorna o novo projeto.
+export async function duplicateProject(
+  id: string,
+  ownerId: string,
+  newName?: string,
+): Promise<Project | undefined> {
+  const original = await prisma.project.findFirst({
+    where: { id, ownerId, deletedAt: null },
+    include: { files: true },
+  });
+  if (!original) return undefined;
+
+  const activeFiles = original.files.filter((f) => !f.deletedAt);
+
+  const newProject = await prisma.project.create({
+    data: {
+      name: newName?.trim() || `Cópia de ${original.name}`,
+      description: original.description,
+      framework: original.framework,
+      llm: original.llm,
+      thumbnailGradient: original.thumbnailGradient,
+      ownerId,
+      files: {
+        createMany: {
+          data: activeFiles.map((f) => ({ path: f.path, content: f.content })),
+        },
+      },
+    },
+  });
+
+  return toProject(newProject);
 }

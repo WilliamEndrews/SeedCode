@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { getProjectForOwner } from "@/server/store";
+import { getProjectAccess } from "@/server/store";
 import { BuilderHeader } from "@/components/builder/builder-header";
 import { ChatPanel } from "@/components/builder/chat-panel";
 import { PreviewPane } from "@/components/builder/preview-pane";
@@ -15,19 +15,20 @@ export default async function BuilderPage({ params }: { params: { projectId: str
     redirect("/login");
   }
 
-  // Busca o projeto real do store, validando que pertence ao usuário logado.
-  const project = await getProjectForOwner(params.projectId, session.user.id);
+  // Busca o projeto real do store, permitindo acesso a donos e membros.
+  const access = await getProjectAccess(params.projectId, session.user.id);
 
-  // Projeto inexistente ou de outro usuário → volta ao dashboard.
-  if (!project) {
+  // Projeto inexistente ou sem permissão → volta ao dashboard.
+  if (!access) {
     redirect("/dashboard");
   }
 
+  const project = access.project;
   const projectName = project.name;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
-      <BuilderHeader projectName={projectName} />
+      <BuilderHeader projectName={projectName} projectId={project.id} role={project.role} />
       {/* Grid com 1 linha de altura fixa (flex-1 do h-screen). Cada célula tem
           min-h-0 + overflow-hidden para que o conteúdo interno role de forma
           independente, sem esticar as demais colunas. */}

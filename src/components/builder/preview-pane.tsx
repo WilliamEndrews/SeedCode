@@ -1,10 +1,17 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { Monitor, Smartphone, RefreshCw, Sparkles, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FILES_CHANGED_EVENT } from "@/lib/builder-events";
+import type { ProjectFile } from "@/lib/types";
+
+const WebContainerPreview = dynamic(
+  () => import("./webcontainer-preview").then((m) => m.WebContainerPreview),
+  { ssr: false },
+);
 
 export function PreviewPane({
   projectId,
@@ -15,6 +22,8 @@ export function PreviewPane({
 }) {
   const [device, setDevice] = React.useState<"desktop" | "mobile">("desktop");
   const [html, setHtml] = React.useState<string | null>(null);
+  const [files, setFiles] = React.useState<ProjectFile[] | null>(null);
+  const [isNodeProject, setIsNodeProject] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -23,17 +32,29 @@ export function PreviewPane({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/preview`, {
-        cache: "no-store",
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { html: string | null };
+      const [filesRes, previewRes] = await Promise.all([
+        fetch(`/api/projects/${projectId}/files`, { cache: "no-store" }),
+        fetch(`/api/projects/${projectId}/preview`, { cache: "no-store" }),
+      ]);
+
+      if (filesRes.ok) {
+        const { files: projectFiles } = (await filesRes.json()) as { files: ProjectFile[] };
+        setFiles(projectFiles);
+        setIsNodeProject(projectFiles.some((f) => f.path === "package.json"));
+      } else {
+        setFiles(null);
+        setIsNodeProject(false);
+      }
+
+      if (previewRes.ok) {
+        const data = (await previewRes.json()) as { html: string | null };
         setHtml(data.html);
       } else {
         setHtml(null);
-        setError(`Erro ${res.status}: não foi possível carregar o preview.`);
       }
     } catch {
+      setFiles(null);
+      setIsNodeProject(false);
       setHtml(null);
       setError("Erro de conexão ao carregar o preview.");
     } finally {
@@ -106,10 +127,12 @@ export function PreviewPane({
                 Tentar novamente
               </button>
             </div>
-          ) : loading && html === null ? (
+          ) : loading && html === null && !isNodeProject ? (
             <div className="flex h-full items-center justify-center text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
+          ) : isNodeProject && files ? (
+            <WebContainerPreview files={files} projectName={projectName} />
           ) : html ? (
             <iframe
               title={`Preview de ${projectName}`}
