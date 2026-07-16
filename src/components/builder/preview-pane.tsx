@@ -137,7 +137,7 @@ export function PreviewPane({
             <iframe
               title={`Preview de ${projectName}`}
               srcDoc={html}
-              sandbox="allow-scripts allow-forms"
+              sandbox="allow-scripts allow-forms allow-modals"
               className="h-full w-full border-0 bg-white"
             />
           ) : (
