@@ -57,6 +57,8 @@ export async function POST(request: Request, { params }: RouteContext) {
   const url = new URL("https://api.vercel.com/v13/deployments");
   const teamId = process.env.VERCEL_TEAM_ID;
   if (teamId) url.searchParams.set("teamId", teamId);
+  // Pula a confirmação de detecção automática de framework para novos projetos.
+  url.searchParams.set("skipAutoDetectionConfirmation", "1");
 
   try {
     const res = await fetch(url, {
@@ -69,6 +71,16 @@ export async function POST(request: Request, { params }: RouteContext) {
         name,
         files: vercelFiles,
         target: "production",
+        projectSettings: {
+          framework: null,
+          buildCommand: null,
+          devCommand: null,
+          installCommand: null,
+          outputDirectory: null,
+          commandForIgnoringBuildStep: null,
+          rootDirectory: null,
+          nodeVersion: "20.x",
+        },
       }),
     });
 
