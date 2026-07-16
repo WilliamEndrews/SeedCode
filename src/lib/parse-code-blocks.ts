@@ -20,6 +20,20 @@ export interface ParsedFile {
 // Usa ``` ou ~~~ como cerca e tolera indentação/CRLF.
 const FENCE_RE = /(?:^|\n)[ \t]*(`{3,}|~{3,})[ \t]*([^\n]*)\n([\s\S]*?)\n[ \t]*\1[ \t]*(?=\n|$)/g;
 
+// Fallback para blocos que só informam a linguagem (ex.: ```html, ```css).
+// Usado quando o modelo não segue o protocolo path=... do SeedCode.
+const DEFAULT_FILES_BY_LANG: Record<string, string> = {
+  html: "index.html",
+  htm: "index.html",
+  css: "styles.css",
+  javascript: "script.js",
+  js: "script.js",
+  typescript: "script.ts",
+  ts: "script.ts",
+  jsx: "index.jsx",
+  tsx: "index.tsx",
+};
+
 // Extrai o path do info-string, se houver. Retorna { path, lang } ou null.
 function parseInfoString(info: string): { path: string; lang?: string } | null {
   const trimmed = info.trim();
@@ -42,6 +56,12 @@ function parseInfoString(info: string): { path: string; lang?: string } | null {
   }
 
   return null;
+}
+
+// Fallback: info-string é apenas a linguagem (ex.: ```html, ```css).
+// Usa um nome padrão conhecido para que o SeedCode salve o arquivo.
+function inferPathFromLanguage(lang: string): string | null {
+  return DEFAULT_FILES_BY_LANG[lang.toLowerCase()] ?? null;
 }
 
 // Percorre o texto e retorna todos os arquivos identificados (com path).
@@ -68,6 +88,14 @@ export function parseCodeBlocks(text: string): ParsedFile[] {
       if (fromFirstLine) {
         parsed = { path: fromFirstLine.path, lang: info.trim() || fromFirstLine.lang };
         content = nl === -1 ? "" : content.slice(nl + 1);
+      }
+    }
+
+    // 3. Fallback final: info-string é apenas a linguagem (```html, ```css).
+    if (!parsed) {
+      const inferred = inferPathFromLanguage(info.trim());
+      if (inferred) {
+        parsed = { path: inferred, lang: info.trim().toLowerCase() };
       }
     }
 

@@ -74,4 +74,25 @@ ok
     const files = parseCodeBlocks(text);
     expect(files[0].path).toBe("index.html");
   });
+
+  it("infers default filename from language-only info-string", () => {
+    const text = `
+\`\`\`html
+<h1>Hello</h1>
+\`\`\`
+
+\`\`\`css
+body { color: red; }
+\`\`\`
+
+\`\`\`javascript
+console.log("ok");
+\`\`\`
+    `.trim();
+    const files = parseCodeBlocks(text);
+    expect(files).toHaveLength(3);
+    expect(files.find((f) => f.path === "index.html")).toBeDefined();
+    expect(files.find((f) => f.path === "styles.css")).toBeDefined();
+    expect(files.find((f) => f.path === "script.js")).toBeDefined();
+  });
 });

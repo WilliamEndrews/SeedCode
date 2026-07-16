@@ -36,11 +36,18 @@ const bodySchema = z.object({
 // O cliente faz o parse desses blocos e grava os arquivos no projeto.
 const FILE_PROTOCOL = `
 PROTOCOLO DE ARQUIVOS (obrigatório ao criar ou alterar código):
-- Escreva CADA arquivo em um bloco de código cercado cujo info-string começa com o caminho, no formato:
+- Escreva CADA arquivo em um bloco de código cercado cujo INFO-STRING COMEÇA COM O CAMINHO, nunca apenas com o nome da linguagem.
+- Formatos válidos:
   \`\`\`html path=index.html
   <conteúdo COMPLETO do arquivo>
   \`\`\`
-- Sempre inclua o conteúdo COMPLETO do arquivo (nunca use "..." ou omita trechos).
+  \`\`\`css path=styles.css
+  <conteúdo COMPLETO do arquivo>
+  \`\`\`
+  \`\`\`javascript path=script.js
+  <conteúdo COMPLETO do arquivo>
+  \`\`\`
+- SEMPRE inclua o conteúdo COMPLETO do arquivo (nunca use "..." ou omita trechos).
 - Para apps estáticos, gere ao menos "index.html". Use "styles.css" e "script.js" quando fizer sentido.
 - No index.html, referencie os assets com <link rel="stylesheet" href="styles.css"> e <script src="script.js"></script>.
 - Escreva um texto curto explicando o que criou ANTES ou DEPOIS dos blocos; a explicação nunca deve ir dentro dos blocos de arquivo.`;
