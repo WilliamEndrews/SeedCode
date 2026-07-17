@@ -2,7 +2,7 @@
 
 > Plataforma **AI Builder** que combina e supera o melhor de **Lovable.dev** e **Base44.com**: chat inteligente, agentes autônomos, edição visual, multi-LLM, custo transparente e código 100% seu (sem lock-in).
 
-Esta é a **fase de protótipo de UI navegável** — front-end de alta fidelidade com estado mockado (sem chamadas reais a LLM/sandbox). É a fundação real do produto, pronta para plugar o backend depois.
+A aplicação já conta com **backend real (Prisma + Supabase)**, **autenticação funcional**, **chat multi-LLM com geração de arquivos**, **preview sandbox** e **integrações iniciais com Vercel e GitHub**. A interface de alta fidelidade continua sendo a base do produto.
 
 ## Stack
 
@@ -28,7 +28,7 @@ Acesse `http://localhost:3000`.
 - **OAuth Google/GitHub** — habilitados ao preencher as chaves `AUTH_*` no `.env.local`.
 - Rotas `/dashboard` e `/builder` são protegidas pelo `middleware.ts`.
 
-> **Nota (Fase 2A):** usuários e projetos vivem em um **store em memória** (`src/server/store.ts`), a ser substituído por Prisma/Supabase na Fase 2B.
+> **Nota:** usuários e projetos são persistidos em **PostgreSQL (Supabase)** via Prisma. O `src/server/store.ts` atua como camada de acesso a dados.
 
 ## Multi-LLM (Fase 2B)
 
@@ -98,12 +98,13 @@ src/
 
 ## Documentação
 
-Veja `ARCHITECTURE.md` para a pesquisa comparativa, análise de inovações e a arquitetura completa do produto.
+- **`docs/ARCHITECTURE.md`** — arquitetura técnica do sistema implementado.
+- **`docs/PROJECT_STATUS.md`** — status, roadmap e histórico do projeto.
+- **`ARCHITECTURE.md`** (raiz) — pesquisa comparativa e visão de produto inicial.
 
 ## Roadmap (próximas fases)
 
-- **Fase 2A (concluída):** auth real (NextAuth v5) + Route Handlers de projetos
-- **Fase 2B:** banco de dados (Prisma/Supabase) + gateway multi-LLM (OpenAI, Claude, Grok, Gemini) com fallback
-- Sandbox de execução (WebContainers/E2B) e preview real
-- Git/GitHub e deploy nativos
-- Colaboração em tempo real
+- **Etapa 1 (concluída):** auth real (NextAuth v5) + Prisma/Supabase + builder + chat multi-LLM + preview sandbox.
+- **Curto prazo:** validar deploy Vercel, validar push GitHub, testes de integração, WebContainer para apps Node.js.
+- **Médio prazo:** Visual Edits, checkpoints/versionamento, templates, mais provedores LLM, responsividade mobile.
+- **Longo prazo:** colaboração em tempo real, canvas de agentes, marketplace, modelo de custo/BYO-key.
