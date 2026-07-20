@@ -28,7 +28,9 @@ export function ChatPanel({
 }) {
   const messages = useChatStore((s) => s.messages);
   const isThinking = useChatStore((s) => s.isThinking);
+  const mode = useChatStore((s) => s.mode);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const runAgentLoop = useChatStore((s) => s.runAgentLoop);
   const setProjectId = useChatStore((s) => s.setProjectId);
   const [input, setInput] = React.useState("");
   const hasAutoSent = React.useRef(false);
@@ -59,8 +61,13 @@ export function ChatPanel({
   }, [messages, isThinking]);
 
   function submit() {
-    if (!input.trim()) return;
-    sendMessage(input.trim());
+    const text = input.trim();
+    if (!text) return;
+    if (mode === "auto") {
+      runAgentLoop(text);
+    } else {
+      sendMessage(text);
+    }
     setInput("");
   }
 

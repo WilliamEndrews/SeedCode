@@ -53,6 +53,7 @@ interface ChatState {
   setLLM: (llm: LLMId) => void;
   sendMessage: (content: string, options?: { role?: "user" | "system" }) => Promise<void>;
   requestFix: (issues: string[]) => Promise<void>;
+  runAgentLoop: (intent: string) => Promise<void>;
   fetchProviderStatus: () => Promise<void>;
   approvePlanStep: (messageId: string, stepId: string) => void;
 }
@@ -242,6 +243,130 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isAutoFixing: false });
   },
 
+  // Modo AUTO real: primeiro planeja, depois executa.
+  runAgentLoop: async (intent) => {
+    const state = get();
+    if (!state.projectId) return;
+
+    set({ fixAttempt: 0 });
+
+    const userMsg: ChatMessage = {
+      id: nextId(),
+      role: "user",
+      mode: "auto",
+      content: intent,
+      createdAt: new Date().toISOString(),
+    };
+
+    const planId = nextId();
+    const planMsg: ChatMessage = {
+      id: planId,
+      role: "assistant",
+      mode: "plan",
+      content: "",
+      createdAt: new Date().toISOString(),
+    };
+
+    set((s) => ({
+      messages: [...s.messages, userMsg, planMsg],
+      isThinking: true,
+    }));
+
+    const history = [...state.messages, userMsg]
+      .filter((m) => m.role !== "system" && m.content.trim().length > 0)
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    let codeId: string | null = null;
+
+    try {
+      // ETAPA 1: Planejamento.
+      const planResult = await streamCompletion(
+        [
+          ...history,
+          {
+            role: "user",
+            content:
+              `${intent}\n\n` +
+              `Antes de gerar código, elabore um plano detalhado: liste os arquivos que serão criados, a função de cada um e as decisões de design/UX. ` +
+              `Não escreva blocos de código nem o conteúdo final dos arquivos nesta resposta.`,
+          },
+        ],
+        state.llm,
+        "plan",
+        set,
+        get,
+      );
+
+      set((s) => ({
+        messages: s.messages.map((m) =>
+          m.id === planId
+            ? { ...m, content: planResult.text, respondedBy: planResult.respondedBy, fallback: planResult.fallback }
+            : m,
+        ),
+      }));
+
+      // ETAPA 2: Execução.
+      codeId = nextId();
+      const codeMsg: ChatMessage = {
+        id: codeId,
+        role: "assistant",
+        mode: "auto",
+        content: "",
+        createdAt: new Date().toISOString(),
+      };
+
+      set((s) => ({
+        messages: [...s.messages, codeMsg],
+      }));
+
+      const codeResult = await streamCompletion(
+        [
+          ...history,
+          { role: "assistant", content: planResult.text },
+          {
+            role: "user",
+            content:
+              `Agora execute o plano acima e gere TODOS os arquivos de uma vez, seguindo rigorosamente o protocolo de arquivos do SeedCode. ` +
+              `Cada arquivo deve estar em um bloco de código com o caminho no info-string (ex.: \`\`\`html path=index.html). ` +
+              `Forneça o conteúdo completo de cada arquivo.`,
+          },
+        ],
+        state.llm,
+        "auto",
+        set,
+        get,
+      );
+
+      set((s) => ({
+        isThinking: false,
+        messages: s.messages.map((m) =>
+          m.id === codeId
+            ? { ...m, content: codeResult.text, respondedBy: codeResult.respondedBy, fallback: codeResult.fallback }
+            : m,
+        ),
+      }));
+
+      // ETAPA 3: Persistência e validação.
+      const files = await persistGeneratedFiles(get().projectId, codeResult.text, codeId, set);
+      if (files.length > 0) {
+        const validation = validateGeneratedFiles(files);
+        if (!validation.ok && !get().isAutoFixing && get().fixAttempt < 1) {
+          set((s) => ({ fixAttempt: s.fixAttempt + 1 }));
+          await get().requestFix(validation.issues);
+        }
+      }
+    } catch {
+      set((s) => ({
+        isThinking: false,
+        messages: s.messages.map((m) =>
+          m.id === planId || m.id === codeId
+            ? { ...m, content: "Falha ao executar o agente. Tente novamente.", error: true }
+            : m,
+        ),
+      }));
+    }
+  },
+
   approvePlanStep: (messageId, stepId) =>
     set((s) => ({
       messages: s.messages.map((m) =>
@@ -254,6 +379,60 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
 // Assinatura mínima do `set` do zustand usada pelo helper abaixo.
 type ChatSet = (fn: (state: ChatState) => Partial<ChatState>) => void;
+
+// Chama a API de chat em streaming e retorna o texto completo, atualizando
+// os metadados de custo e uso de provedores. Não manipula mensagens da UI.
+async function streamCompletion(
+  messages: { role: "user" | "assistant" | "system"; content: string }[],
+  model: LLMId,
+  mode: AgentMode,
+  set: ChatSet,
+  get: () => ChatState,
+): Promise<{ text: string; respondedBy: LLMId; fallback?: FallbackInfo }> {
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, model, mode }),
+  });
+
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => ({ error: "Falha na resposta." }));
+    throw new Error(data.error ?? "Falha na resposta.");
+  }
+
+  const respondedBy = (res.headers.get("X-LLM-Model") as LLMId) ?? model;
+  const fromHeader = res.headers.get("X-LLM-Fallback-From") as LLMId | null;
+  const reasonHeader = res.headers.get("X-LLM-Fallback-Reason");
+  const fallback: FallbackInfo | undefined = fromHeader
+    ? {
+        from: fromHeader,
+        to: respondedBy,
+        reason: reasonHeader ? decodeURIComponent(reasonHeader) : "Modelo indisponível",
+      }
+    : undefined;
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let full = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    full += decoder.decode(value, { stream: true });
+  }
+
+  const tokens = estimateTokens(full);
+  set((s) => ({
+    cost: {
+      tokensUsed: s.cost.tokensUsed + tokens,
+      costUsd: 0,
+      requests: s.cost.requests + 1,
+    },
+  }));
+  void get().fetchProviderStatus();
+
+  return { text: full, respondedBy, fallback };
+}
 
 // Faz o parse dos blocos de código da resposta e grava cada arquivo no projeto
 // via API. Anota o resultado (sucesso/erro por arquivo) como "passos" na bolha
