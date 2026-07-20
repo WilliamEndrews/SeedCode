@@ -74,9 +74,11 @@ export function ChatPanel({
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
-        ))}
+        {messages
+          .filter((m) => m.role !== "system")
+          .map((m) => (
+            <MessageBubble key={m.id} message={m} />
+          ))}
         {isThinking && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin text-primary" /> Pensando...

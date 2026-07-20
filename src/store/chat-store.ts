@@ -9,6 +9,7 @@ import type {
   ProviderUsage,
 } from "@/lib/types";
 import { parseCodeBlocks } from "@/lib/parse-code-blocks";
+import { validateGeneratedFiles } from "@/lib/validate-generated-files";
 import { emitFilesChanged } from "@/lib/builder-events";
 import { toast } from "@/store/toast-store";
 
@@ -44,10 +45,14 @@ interface ChatState {
   // Histórico de mensagens por projeto (evita que o chat de um projeto
   // vaze para outro ou seja perdido ao trocar de contexto dentro da SPA).
   messagesByProject: Record<string, ChatMessage[]>;
+  // Controle de auto-correção de arquivos gerados (evita loops infinitos).
+  fixAttempt: number;
+  isAutoFixing: boolean;
   setProjectId: (projectId: string | null) => void;
   setMode: (mode: AgentMode) => void;
   setLLM: (llm: LLMId) => void;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, options?: { role?: "user" | "system" }) => Promise<void>;
+  requestFix: (issues: string[]) => Promise<void>;
   fetchProviderStatus: () => Promise<void>;
   approvePlanStep: (messageId: string, stepId: string) => void;
 }
@@ -61,6 +66,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   providers: [],
   projectId: null,
   messagesByProject: {},
+  fixAttempt: 0,
+  isAutoFixing: false,
 
   setProjectId: (projectId) =>
     set((s) => {
@@ -94,13 +101,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // Envia a mensagem do usuário e faz o streaming da resposta do assistente.
-  sendMessage: async (content) => {
+  sendMessage: async (content, options = { role: "user" }) => {
     const state = get();
 
-    // 1. Acrescenta a mensagem do usuário.
+    // Reseta contador de correção a cada novo turno do usuário.
+    if (!state.isAutoFixing && options.role === "user") {
+      set({ fixAttempt: 0 });
+    }
+
+    // 1. Acrescenta a mensagem do usuário (ou nota do sistema para correção).
     const userMsg: ChatMessage = {
       id: nextId(),
-      role: "user",
+      role: options.role ?? "user",
       mode: state.mode,
       content,
       createdAt: new Date().toISOString(),
@@ -196,7 +208,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       // 5. Persiste os arquivos gerados (blocos com path=) no projeto ativo e
       // recarrega o preview. Cada arquivo vira um "passo" exibido na bolha.
-      await persistGeneratedFiles(get().projectId, full, assistantId, set);
+      const files = await persistGeneratedFiles(get().projectId, full, assistantId, set);
+
+      // 6. Valida os arquivos gerados e, se necessário, pede uma correção
+      // automática (apenas 1 tentativa por turno para evitar loop de tokens).
+      if (files.length > 0) {
+        const validation = validateGeneratedFiles(files);
+        if (!validation.ok && !get().isAutoFixing && get().fixAttempt < 1) {
+          set((s) => ({ fixAttempt: s.fixAttempt + 1 }));
+          await get().requestFix(validation.issues);
+        }
+      }
     } catch {
       // Falha de rede inesperada.
       set((s) => ({
@@ -208,6 +230,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ),
       }));
     }
+  },
+
+  requestFix: async (issues) => {
+    set({ isAutoFixing: true });
+    const prompt =
+      `A resposta anterior gerou arquivos com os seguintes problemas:\n` +
+      issues.map((i) => `- ${i}`).join("\n") +
+      `\n\nPor favor, corrija TODOS os problemas acima e reenvie os arquivos completos, seguindo o protocolo de arquivos do SeedCode. Não responda apenas com explicações: gere os arquivos corrigidos.`;
+    await get().sendMessage(prompt, { role: "system" });
+    set({ isAutoFixing: false });
   },
 
   approvePlanStep: (messageId, stepId) =>
@@ -232,11 +264,11 @@ async function persistGeneratedFiles(
   fullText: string,
   assistantId: string,
   set: ChatSet,
-): Promise<void> {
-  if (!projectId) return;
+): Promise<import("@/lib/parse-code-blocks").ParsedFile[]> {
+  if (!projectId) return [];
 
   const files = parseCodeBlocks(fullText);
-  if (files.length === 0) return;
+  if (files.length === 0) return [];
 
   // Captura o estado atual dos arquivos para gerar os diffs.
   const existing = await fetchCurrentFiles(projectId);
@@ -285,6 +317,8 @@ async function persistGeneratedFiles(
   const ok = steps.length - failed;
   if (ok > 0) toast.success(`${ok} arquivo(s) gerado(s) pela IA.`);
   if (failed > 0) toast.error(`${failed} arquivo(s) falharam ao salvar.`);
+
+  return files;
 }
 
 async function fetchCurrentFiles(projectId: string): Promise<Map<string, string>> {
