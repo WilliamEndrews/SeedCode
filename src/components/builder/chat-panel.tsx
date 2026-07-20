@@ -19,12 +19,19 @@ function modelName(id: LLMId): string {
   return LLM_OPTIONS.find((o) => o.id === id)?.name ?? id;
 }
 
-export function ChatPanel({ projectId }: { projectId: string }) {
+export function ChatPanel({
+  projectId,
+  initialPrompt,
+}: {
+  projectId: string;
+  initialPrompt?: string;
+}) {
   const messages = useChatStore((s) => s.messages);
   const isThinking = useChatStore((s) => s.isThinking);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const setProjectId = useChatStore((s) => s.setProjectId);
   const [input, setInput] = React.useState("");
+  const hasAutoSent = React.useRef(false);
 
   // Registra o projeto ativo para que os arquivos gerados pela IA sejam
   // gravados no projeto correto. Limpa ao desmontar.
@@ -32,6 +39,16 @@ export function ChatPanel({ projectId }: { projectId: string }) {
     setProjectId(projectId);
     return () => setProjectId(null);
   }, [projectId, setProjectId]);
+
+  // Se o projeto foi criado pelo wizard com um prompt enriquecido, inicia a
+  // construção automaticamente para que o usuário leigo veja a IA trabalhando.
+  React.useEffect(() => {
+    if (!initialPrompt || hasAutoSent.current) return;
+    if (messages.length === 1 && messages[0].id === "msg-welcome") {
+      hasAutoSent.current = true;
+      sendMessage(initialPrompt);
+    }
+  }, [initialPrompt, messages, sendMessage]);
   // Painel de status/custo recolhível (fechado por padrão) para não ocupar
   // espaço vertical e garantir que o input e as mensagens fiquem sempre visíveis.
   const [showStats, setShowStats] = React.useState(false);
@@ -155,7 +172,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           </div>
         )}
 
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        <p className="whitespace-pre-wrap break-words">{message.content}</p>
 
         {/* Badge do modelo que efetivamente respondeu (transparência) */}
         {!isUser && message.respondedBy && (

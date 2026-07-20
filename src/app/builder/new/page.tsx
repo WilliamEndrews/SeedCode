@@ -12,7 +12,7 @@ import { auth } from "@/auth";
 import { createProject } from "@/server/store";
 
 interface Props {
-  searchParams: { prompt?: string };
+  searchParams: { prompt?: string; framework?: string };
 }
 
 export default async function NewBuilderPage({ searchParams }: Props) {
@@ -33,6 +33,7 @@ export default async function NewBuilderPage({ searchParams }: Props) {
   const project = await createProject(session.user.id, {
     name,
     description: rawPrompt,
+    framework: searchParams.framework,
   });
 
   redirect(`/builder/${project.id}`);
