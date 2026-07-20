@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { CoreMessage } from "ai";
 import { auth } from "@/auth";
 import { streamChat, AllModelsFailedError } from "@/server/llm/gateway";
+import { getTemplateContext } from "@/server/templates";
 
 // Validação do corpo da requisição.
 const bodySchema = z.object({
@@ -84,7 +85,7 @@ PROTOCOLO DE ARQUIVOS — REGRAS OBRIGATÓRIAS AO CRIAR OU ALTERAR CÓDIGO:
 8. Se o usuário pedir apenas uma alteração, reescreva APENAS os arquivos que mudaram, mantendo o resto intacto.`;
 
 // Instrução de sistema conforme o modo de trabalho selecionado no builder.
-function systemPromptFor(mode: string | undefined): string {
+function systemPromptFor(mode: string | undefined, userIntent: string): string {
   const base = `Você é o Agente SeedCode, um engenheiro frontend sênior e product designer experiente. Sua missão é transformar qualquer ideia — mesmo vaga — em uma aplicação web funcional, bonita e bem estruturada.
 
 PRINCÍPIOS DE ATENDIMENTO:
@@ -98,15 +99,17 @@ PRINCÍPIOS DE ATENDIMENTO:
 - Valide mentalmente se os caminhos referenciados correspondem aos arquivos gerados.
 - Nunca responda apenas com "ok" ou "entendido" sem executar uma ação ou fazer perguntas de esclarecimento.`;
 
+  const templates = userIntent ? `\n\n${getTemplateContext(userIntent)}` : "";
+
   switch (mode) {
     case "plan":
-      return `${base}\n\nMODO PLAN — NÃO ESCREVA CÓDIGO FINAL. Entenda a ideia, faça as perguntas necessárias e devolva um plano claro em passos numerados, com decisões, sugestões de tecnologia e estilo. Aguarde aprovação do usuário.`;
+      return `${base}\n\nMODO PLAN — NÃO ESCREVA CÓDIGO FINAL. Entenda a ideia, faça as perguntas necessárias e devolva um plano claro em passos numerados, com decisões, sugestões de tecnologia e estilo. Aguarde aprovação do usuário.${templates}`;
     case "visual":
-      return `${base}\n\nMODO VISUAL — Foque em ajustes de UI/estilo do projeto existente. Leve em conta os arquivos atuais e gere APENAS os arquivos que precisam mudar, seguindo o protocolo abaixo.\n\n${FILE_PROTOCOL}`;
+      return `${base}\n\nMODO VISUAL — Foque em ajustes de UI/estilo do projeto existente. Leve em conta os arquivos atuais e gere APENAS os arquivos que precisam mudar, seguindo o protocolo abaixo.\n\n${FILE_PROTOCOL}${templates}`;
     case "auto":
-      return `${base}\n\nMODO AUTO — Seja proativo e use defaults elegantes. Além do pedido, sugira melhorias visuais/funcionais e gere o código completo imediatamente, a menos que algo esteja realmente ambíguo. Siga o protocolo abaixo.\n\n${FILE_PROTOCOL}`;
+      return `${base}\n\nMODO AUTO — Seja proativo e use defaults elegantes. Além do pedido, sugira melhorias visuais/funcionais e gere o código completo imediatamente, a menos que algo esteja realmente ambíguo. Siga o protocolo abaixo.\n\n${FILE_PROTOCOL}${templates}`;
     default:
-      return `${base}\n\nMODO AGENT — Execute a solicitação. Se o pedido for claro e completo, gere os arquivos de imediato. Se for vago, faça no máximo 3 perguntas curtas, proponha um plano e aguarde resposta. Siga o protocolo abaixo.\n\n${FILE_PROTOCOL}`;
+      return `${base}\n\nMODO AGENT — Execute a solicitação. Se o pedido for claro e completo, gere os arquivos de imediato. Se for vago, faça no máximo 3 perguntas curtas, proponha um plano e aguarde resposta. Siga o protocolo abaixo.\n\n${FILE_PROTOCOL}${templates}`;
   }
 }
 
@@ -137,9 +140,14 @@ export async function POST(request: Request) {
 
   try {
     // Aciona o gateway (tenta o modelo e cai no fallback se necessário).
+    // Detecta a intenção do usuário a partir da última mensagem para injetar
+    // templates de referência relevantes no system prompt.
+    const userMessages = messages.filter((m) => m.role === "user");
+    const userIntent = (userMessages[userMessages.length - 1]?.content ?? "").toString();
+
     const result = await streamChat({
       requested: model,
-      system: systemPromptFor(mode),
+      system: systemPromptFor(mode, userIntent),
       messages: messages as CoreMessage[],
     });
 
